@@ -5,6 +5,7 @@ services:
     region: singapore
     plan: free
     dockerfilePath: ./server/Dockerfile
+    dockerContext: ./server
     envVars:
       - key: PORT
         value: "8080"
