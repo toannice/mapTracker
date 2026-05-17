@@ -156,15 +156,15 @@ func (r *Room) handleAction(ctx context.Context, msg conn.IncomingMsg) {
 		return
 	}
 
-	r.broadcastTurnResult(events)
-
 	if r.state.Phase == game.PhaseEnded {
+		r.broadcastTurnResult(events)
 		r.broadcastGameOver()
 		time.AfterFunc(60*time.Second, func() { r.onDelete(r.state.RoomID) })
 		return
 	}
 
 	r.advanceTurnIndex()
+	r.broadcastTurnResult(events)
 }
 
 func (r *Room) handlePing(msg conn.IncomingMsg) {
@@ -264,8 +264,8 @@ func (r *Room) checkTurnDeadline() {
 		Kind:    protocol.EventTurnSkipped,
 		Payload: map[string]string{"playerId": string(currentTurn)},
 	}}
-	r.broadcastTurnResult(events)
 	r.advanceTurnIndex()
+	r.broadcastTurnResult(events)
 }
 
 func (r *Room) advanceTurnIndex() {
