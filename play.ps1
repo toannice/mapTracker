@@ -17,12 +17,24 @@ if (!$Room) {
     }
 }
 
+[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+
 $ws  = [System.Net.WebSockets.ClientWebSocket]::new()
 $ct  = [System.Threading.CancellationToken]::None
 $enc = [System.Text.Encoding]::UTF8
 
-Write-Host "Connecting..." -ForegroundColor DarkGray
-$ws.ConnectAsync([Uri]$Url, $ct).GetAwaiter().GetResult()
+$wsUrl = "$Url`?room=$Room&name=$([Uri]::EscapeDataString($Name))"
+Write-Host "Connecting to $wsUrl ..." -ForegroundColor DarkGray
+try {
+    $ws.ConnectAsync([Uri]$wsUrl, $ct).GetAwaiter().GetResult()
+} catch {
+    Write-Host "Connection failed: $_" -ForegroundColor Red
+    exit 1
+}
+if ($ws.State -ne 'Open') {
+    Write-Host "WebSocket not open (state: $($ws.State))" -ForegroundColor Red
+    exit 1
+}
 Write-Host "Connected." -ForegroundColor Green
 
 function Send-Json([string]$json) {
@@ -60,10 +72,6 @@ $ps.Runspace = $rs
 })
 $handle = $ps.BeginInvoke()
 
-# Join room
-$joinJson = '{"type":"join","ts":' + (Now) + ',"data":{"roomCode":"' + $Room + '","playerName":"' + $Name + '"}}'
-Send-Json $joinJson
-
 Write-Host ""
 Write-Host "Controls:" -ForegroundColor Yellow
 Write-Host "  W / Arrow-Up    = Move North"
@@ -89,7 +97,7 @@ while ($shared.ws.State -eq 'Open') {
         'G'        { Action '{"kind":"start_game"}' }
         'P'        { Action '{"kind":"pickup"}' }
         'Q'        { $shared.running = $false
-                     $ws.CloseAsync('NormalClosure','bye',$ct).GetAwaiter().GetResult()
+                     $ws.CloseOutputAsync('NormalClosure','bye',$ct).GetAwaiter().GetResult()
                      break }
         default    { $null }
     }
