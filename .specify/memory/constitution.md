@@ -1,50 +1,77 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+<!--
+SYNC IMPACT REPORT
+==================
+Version change: 1.0.0 → 1.1.0
+Status: MINOR — new principle added
+
+Principles added:
+  IV.  Phase Test Gate           (new)
+
+Templates updated:
+  ✅ .specify/memory/constitution.md       — this file (v1.1.0)
+  ✅ .specify/templates/plan-template.md   — Constitution Check gate IV added
+  ⚠  .specify/templates/spec-template.md  — no changes required
+  ⚠  .specify/templates/tasks-template.md — no changes required
+
+Deferred items:
+  None.
+-->
+
+# Blind Map Survival Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. Code Cleanliness
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+No source file MUST exceed 500 lines of code (excluding blank lines and comments).
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+- When a file approaches 500 lines, it MUST be split into focused, single-responsibility units before new code is added.
+- Each file MUST have one clear purpose; organizational-only files with no logic are not permitted.
+- Refactoring to meet this limit is not optional — it is required before a feature is considered complete.
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+### II. Spec-First Development
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+All implementation MUST conform to `blind_map_survival_tech_spec.docx` as the authoritative source of truth.
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+- Any deviation from the tech spec — whether a bug fix, feature addition, or architectural change — MUST be presented to the user for approval before work begins.
+- Claude MUST NOT implement changes unilaterally; it MUST propose and wait for explicit confirmation.
+- Recommendations are welcome, but implementation only follows explicit user approval.
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+### III. Commit Discipline
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+Whenever a single work session accumulates more than 100 lines of code changed (added + modified + deleted combined), a git commit MUST be made before continuing.
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+- Commit messages MUST follow this structure exactly:
+  `add|fix|delete: <description of the work>`
+- Use `add` for new files or features, `fix` for corrections or adjustments, `delete` for removals.
+- One logical unit of work per commit; do not batch unrelated changes.
+- Execute via `/speckit-git-commit` or equivalent git commit command.
+
+### IV. Phase Test Gate
+
+Before marking any implementation phase complete and proceeding to the next phase, the corresponding `specs/001-blind-map-survival/test-phase-<N>.md` guide MUST be run in full and all Pass Criteria in that document MUST be met against actual running behavior.
+
+- "Seems complete" is not complete. Code that compiles and exists does not mean it works correctly.
+- Each test guide defines exact commands, expected outputs, and "Wrong if" failure modes — these are the definition of done for that phase, not the task checklist.
+- A phase is only complete when every item in the guide's Pass Criteria table is verified against a live running system (server, wscat, or Android emulator as appropriate).
+- Skipping or abbreviating the test gate is prohibited even under time pressure. If a pass criterion cannot be verified, the phase is not done.
+- If a test reveals a defect, the defect MUST be fixed before moving to the next phase — do not carry known failures forward.
+
+## Development Constraints
+
+- Tech stack, architecture, and deployment are defined in `blind_map_survival_tech_spec.docx`. No technology choices outside that document MUST be introduced without user approval (see Principle II).
+- The project targets free-tier cloud hosting (Render.com Singapore); implementation choices MUST remain within those resource constraints.
+- All game state MUST reside server-side (authoritative server model); clients are display-only.
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+- This constitution supersedes all other development practices for this project.
+- Amendments require: (1) proposed change presented to user, (2) explicit user approval, (3) version bump applied per semantic versioning below, (4) CLAUDE.md updated if affected.
+- **Version semantics**:
+  - MAJOR: Removal or redefinition of an existing principle.
+  - MINOR: New principle or section added.
+  - PATCH: Wording clarification, non-semantic refinement.
+- All implementation plans MUST include a Constitution Check gate before Phase 0 research begins.
+- Any PR or task review MUST verify compliance with all three Core Principles before marking complete.
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Version**: 1.1.0 | **Ratified**: 2026-05-16 | **Last Amended**: 2026-05-16

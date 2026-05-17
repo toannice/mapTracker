@@ -31,7 +31,14 @@
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-[Gates determined based on constitution file]
+| # | Principle | Gate Question | Status |
+|---|-----------|---------------|--------|
+| I | Code Cleanliness | Are all planned source files scoped to ≤500 lines? Split any file expected to exceed this before design is finalised. | ☐ |
+| II | Spec-First Development | Does every planned component trace back to `blind_map_survival_tech_spec.docx`? Any deviation from the spec MUST be flagged for user approval before it enters the plan. | ☐ |
+| III | Commit Discipline | Is the commit cadence plan clear? Every >100-line change batch MUST produce one commit with message format `add\|fix\|delete: <work>`. | ☐ |
+| IV | Phase Test Gate | Does each implementation phase have a corresponding `test-phase-<N>.md` guide? All Pass Criteria in that guide MUST be verified against running behavior before the phase is marked done. | ☐ |
+
+*All four gates MUST be checked (☑) before proceeding to Phase 0.*
 
 ## Project Structure
 

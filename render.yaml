@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: blind-map-survival
+    runtime: docker
+    region: singapore
+    plan: free
+    dockerfilePath: ./server/Dockerfile
+    envVars:
+      - key: PORT
+        value: "8080"
+      - key: LOG_LEVEL
+        value: info
+      - key: MAX_ROOMS
+        value: "100"
+      - key: TURN_SECONDS
+        value: "30"
+      - key: ALLOWED_ORIGINS
+        value: "*"
