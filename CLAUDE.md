@@ -137,3 +137,39 @@ Server→Client: `welcome`, `lobby_update`, `game_start`, `turn_result`, `event`
 - **Cold start**: Render free tier sleeps after 15 min idle; client shows progress bar, retries up to 60s
 - **Map logging for debug**: server logs full map state for replay/audit; no active anti-cheat needed beyond authoritative server
 - **RNG seeded with `crypto/rand`**: map generation and item randomization are not reproducible by clients
+
+## Project Status (as of 2026-05-17)
+
+### Completed (branch `001-blind-map-survival`)
+All 53 planned tasks (T001–T053) done and verified end-to-end:
+- Go server live at `https://maptracker-c68n.onrender.com` (Render.com, Singapore)
+- Android APK builds and installs; lobby, game, and game-over screens work
+- `play.ps1` terminal client — W/A/S/D / arrow keys, room create/join
+- Post-plan bugs fixed: `events:null` crash, dark-theme black UI, `currentTurn` advance order
+
+### Bugs fixed post-plan
+| Bug | Fix |
+|---|---|
+| App crash on `game_start` — `events: null` not nullable | `PlayerView.events: List<Event>? = null` |
+| Android UI invisible (black on black, dark mode) | Force `lightColorScheme()` in `MainActivity` |
+| Phone player buttons always disabled | Server was broadcasting `currentTurn` before advancing index; swapped order in `handleAction` and `checkTurnDeadline` |
+
+### Remaining to-do (not in original plan)
+
+**TODO-1 · Cold-start UX** _(in progress)_
+Render free tier sleeps after 15 min idle. Connection takes up to 60s on cold start.
+Android app should show a progress bar + "Waking server…" message while retrying.
+`play.ps1` should print a waiting indicator instead of silently failing.
+
+**TODO-2 · UX overhaul — terminal & Android** _(next)_
+The game works but is hard to follow. Specific improvements needed:
+- **Terminal (`play.ps1`)**: replace raw JSON log output with a readable game summary per turn:
+  position, whose turn, timer, visited count, recent events — one clean block per update.
+- **Terminal**: show wall-hit feedback (`move out of bounds`) clearly, not as raw error JSON.
+- **Terminal**: increase default turn time and add more action choices to the menu.
+- **Android**: cleaner event feed — human-readable sentences, not raw event kind strings.
+- **Android**: show wall-hit as a brief toast/snackbar, not silently ignored.
+- **Both**: make the information hierarchy obvious — what happened / what's my state / what can I do.
+
+**TODO-3 · Merge `001-blind-map-survival` → `main`** _(after TODO-1)_
+Open PR, review, squash-merge.

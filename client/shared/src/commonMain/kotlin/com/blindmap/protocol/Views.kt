@@ -43,7 +43,7 @@ data class PlayerView(
     val self: SelfView,
     val others: List<OtherPlayerView>,
     @SerialName("visibleMap") val visibleMap: List<CellView>,
-    val events: List<Event>,
+    val events: List<Event>? = null,
     @SerialName("turnEndsAt") val turnEndsAt: Long,
     @SerialName("currentTurn") val currentTurn: String,
     val turn: Int,

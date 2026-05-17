@@ -24,16 +24,33 @@ $ct  = [System.Threading.CancellationToken]::None
 $enc = [System.Text.Encoding]::UTF8
 
 $wsUrl = "$Url`?room=$Room&name=$([Uri]::EscapeDataString($Name))"
-Write-Host "Connecting to $wsUrl ..." -ForegroundColor DarkGray
-try {
-    $ws.ConnectAsync([Uri]$wsUrl, $ct).GetAwaiter().GetResult()
-} catch {
-    Write-Host "Connection failed: $_" -ForegroundColor Red
+
+# Cold-start retry loop — Render free tier can take up to 60s to wake
+$connected = $false
+$attempt   = 0
+$maxWait   = 60
+$waited    = 0
+Write-Host "Connecting" -NoNewline -ForegroundColor DarkGray
+while (-not $connected -and $waited -lt $maxWait) {
+    $ws = [System.Net.WebSockets.ClientWebSocket]::new()
+    try {
+        $ws.ConnectAsync([Uri]$wsUrl, $ct).GetAwaiter().GetResult()
+        $connected = $true
+    } catch {
+        $attempt++
+        $delay = [Math]::Min([Math]::Pow(2, $attempt), 10)
+        Write-Host "." -NoNewline -ForegroundColor DarkGray
+        Start-Sleep -Seconds $delay
+        $waited += $delay
+    }
+}
+Write-Host ""
+if (-not $connected) {
+    Write-Host "Could not reach server after ${maxWait}s. Is the URL correct?" -ForegroundColor Red
     exit 1
 }
-if ($ws.State -ne 'Open') {
-    Write-Host "WebSocket not open (state: $($ws.State))" -ForegroundColor Red
-    exit 1
+if ($attempt -gt 0) {
+    Write-Host "Server woke up after ${waited}s." -ForegroundColor Yellow
 }
 Write-Host "Connected." -ForegroundColor Green
 

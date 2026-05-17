@@ -193,10 +193,11 @@ fun GameScreen(vm: GameViewModel, onNavigateToGameOver: () -> Unit) {
             Spacer(Modifier.height(8.dp))
 
             // Recent events
-            if (g.events.isNotEmpty()) {
+            val recentEvents = g.events.orEmpty()
+            if (recentEvents.isNotEmpty()) {
                 Text("Events", style = MaterialTheme.typography.labelMedium)
                 LazyColumn(modifier = Modifier.height(80.dp)) {
-                    items(g.events.takeLast(5)) { event ->
+                    items(recentEvents.takeLast(5)) { event ->
                         Text("• ${eventDescription(event.kind)}", style = MaterialTheme.typography.bodySmall)
                     }
                 }

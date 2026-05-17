@@ -10,8 +10,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -20,6 +24,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -29,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import com.blindmap.state.ConnState
 import com.blindmap.state.GamePhase
 import com.blindmap.viewmodel.GameViewModel
+import kotlinx.coroutines.delay
 
 @Composable
 fun LobbyScreen(vm: GameViewModel, serverUrl: String, onNavigateToGame: () -> Unit) {
@@ -110,14 +117,55 @@ fun LobbyScreen(vm: GameViewModel, serverUrl: String, onNavigateToGame: () -> Un
 
         if (state.connState == ConnState.Connecting) {
             Spacer(Modifier.height(16.dp))
-            CircularProgressIndicator()
-            Text("Connecting to server...", style = MaterialTheme.typography.bodySmall)
+            ColdStartIndicator()
         }
 
         state.errorMessage?.let { err ->
             Spacer(Modifier.height(8.dp))
             Text(err, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
+    }
+}
+
+@Composable
+private fun ColdStartIndicator() {
+    var elapsed by remember { mutableIntStateOf(0) }
+    var progress by remember { mutableFloatStateOf(0f) }
+    val animatedProgress by animateFloatAsState(
+        targetValue = progress,
+        animationSpec = tween(durationMillis = 1000, easing = LinearEasing),
+        label = "coldstart"
+    )
+
+    LaunchedEffect(Unit) {
+        while (elapsed < 60) {
+            delay(1000L)
+            elapsed++
+            progress = elapsed / 60f
+        }
+    }
+
+    val message = when {
+        elapsed < 5  -> "Connecting…"
+        elapsed < 20 -> "Waking server… (free tier cold start, up to 60s)"
+        elapsed < 45 -> "Still waking… ${60 - elapsed}s remaining"
+        else         -> "Almost there… ${60 - elapsed}s"
+    }
+
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        CircularProgressIndicator()
+        Spacer(Modifier.height(8.dp))
+        Text(message, style = MaterialTheme.typography.bodySmall)
+        Spacer(Modifier.height(4.dp))
+        LinearProgressIndicator(
+            progress = { animatedProgress },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            "${elapsed}s / 60s",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+        )
     }
 }
 
