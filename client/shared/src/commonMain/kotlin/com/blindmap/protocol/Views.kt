@@ -19,7 +19,15 @@ data class SelfView(
     val inventory: List<Item>,
     @SerialName("visitedCount") val visitedCount: Int,
     @SerialName("totalCells") val totalCells: Int,
-    @SerialName("infoBlackout") val infoBlackout: Boolean
+    @SerialName("infoBlackout") val infoBlackout: Boolean,
+    @SerialName("submitsLeft") val submitsLeft: Int = 0
+)
+
+/** Aggregate-only map info backing the "Info" button — counts, never positions. */
+@Serializable
+data class MapStats(
+    @SerialName("mapSize") val mapSize: Int,
+    val counts: Map<String, Int>
 )
 
 @Serializable
@@ -47,7 +55,8 @@ data class PlayerView(
     @SerialName("turnEndsAt") val turnEndsAt: Long,
     @SerialName("currentTurn") val currentTurn: String,
     val turn: Int,
-    val phase: String
+    val phase: String,
+    @SerialName("mapStats") val mapStats: MapStats? = null
 )
 
 @Serializable

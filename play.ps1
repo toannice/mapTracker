@@ -96,7 +96,6 @@ Write-Host "  S / Arrow-Down  = Move South"
 Write-Host "  A / Arrow-Left  = Move West"
 Write-Host "  D / Arrow-Right = Move East"
 Write-Host "  G               = Start game (host only)"
-Write-Host "  P               = Pick up item"
 Write-Host "  Q               = Quit"
 Write-Host ""
 
@@ -112,7 +111,6 @@ while ($shared.ws.State -eq 'Open') {
         'D'        { Action '{"kind":"move","direction":"E"}' }
         'RightArrow'{Action '{"kind":"move","direction":"E"}' }
         'G'        { Action '{"kind":"start_game"}' }
-        'P'        { Action '{"kind":"pickup"}' }
         'Q'        { $shared.running = $false
                      $ws.CloseOutputAsync('NormalClosure','bye',$ct).GetAwaiter().GetResult()
                      break }

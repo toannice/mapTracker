@@ -29,6 +29,16 @@ func TestGenerateMapCellCounts(t *testing.T) {
 	}
 }
 
+func TestGenerateMapIsConnected(t *testing.T) {
+	for seed := uint64(0); seed < 30; seed++ {
+		rng := rand.New(rand.NewPCG(seed, seed))
+		grid := GenerateMap(8, rng)
+		if !isFullyConnected(grid, 8) {
+			t.Fatalf("seed %d: generated map is not fully connected", seed)
+		}
+	}
+}
+
 func TestVisitedCellsDedup(t *testing.T) {
 	visited := make(map[Position]bool)
 	pos := Position{X: 1, Y: 1}

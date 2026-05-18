@@ -120,7 +120,7 @@ fun LobbyScreen(vm: GameViewModel, serverUrl: String, onNavigateToGame: () -> Un
             ColdStartIndicator()
         }
 
-        state.errorMessage?.let { err ->
+        (state.connectionError ?: state.transientError)?.let { err ->
             Spacer(Modifier.height(8.dp))
             Text(err, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }

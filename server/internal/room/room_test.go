@@ -50,7 +50,9 @@ func TestAdvanceTurnMoveValid(t *testing.T) {
 	}
 }
 
-func TestAdvanceTurnBoundaryRejected(t *testing.T) {
+func TestAdvanceTurnBoundaryCostsTurn(t *testing.T) {
+	// Phase 2: hitting a wall/border no longer errors — it emits a failed
+	// player_moved event, leaves the position unchanged, and costs the turn.
 	aliceID := game.PlayerID("alice")
 	alice := &game.Player{
 		ID:           aliceID,
@@ -63,12 +65,63 @@ func TestAdvanceTurnBoundaryRejected(t *testing.T) {
 	state := makeTestState(5, map[game.PlayerID]*game.Player{aliceID: alice}, []game.PlayerID{aliceID})
 
 	origPos := alice.Pos
-	_, err := AdvanceTurn(state, nil, aliceID, &protocol.ActionData{Kind: protocol.ActionMove, Direction: "N"})
-	if err == nil {
-		t.Fatal("expected boundary error, got nil")
+	events, err := AdvanceTurn(state, nil, aliceID, &protocol.ActionData{Kind: protocol.ActionMove, Direction: "N"})
+	if err != nil {
+		t.Fatalf("boundary move should not error: %v", err)
 	}
 	if alice.Pos != origPos {
 		t.Errorf("pos should not change on boundary: got %+v", alice.Pos)
+	}
+	if len(events) != 1 || events[0].Kind != protocol.EventPlayerMoved {
+		t.Fatalf("expected one player_moved event, got %+v", events)
+	}
+	payload := events[0].Payload.(map[string]interface{})
+	if payload["success"] != false {
+		t.Errorf("expected success=false on boundary hit, got %v", payload["success"])
+	}
+}
+
+func TestSubmitMapExactWins(t *testing.T) {
+	aliceID := game.PlayerID("alice")
+	alice := &game.Player{ID: aliceID, Name: "Alice", Alive: true, MaxSubmit: 3,
+		Inventory: []game.Item{}, VisitedCells: map[game.Position]bool{}}
+	state := makeTestState(5, map[game.PlayerID]*game.Player{aliceID: alice}, []game.PlayerID{aliceID})
+	state.Grid[1][1].Kind = game.CellWall
+	state.Grid[3][2].Kind = game.CellWall
+
+	events, err := applySubmitMap(state, alice,
+		[]game.Position{{X: 1, Y: 1}, {X: 2, Y: 3}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if state.Phase != game.PhaseEnded || state.WinReason != "map_complete" {
+		t.Errorf("expected map_complete win, got phase=%s reason=%s", state.Phase, state.WinReason)
+	}
+	if events[0].Payload.(map[string]interface{})["correct"] != true {
+		t.Error("expected correct=true")
+	}
+}
+
+func TestSubmitMapWrongCostsAttempt(t *testing.T) {
+	aliceID := game.PlayerID("alice")
+	alice := &game.Player{ID: aliceID, Name: "Alice", Alive: true, MaxSubmit: 3,
+		Inventory: []game.Item{}, VisitedCells: map[game.Position]bool{}}
+	state := makeTestState(5, map[game.PlayerID]*game.Player{aliceID: alice}, []game.PlayerID{aliceID})
+	state.Grid[1][1].Kind = game.CellWall
+
+	// miss the real wall, mark one wrong cell → symmetric diff = 2
+	events, err := applySubmitMap(state, alice, []game.Position{{X: 4, Y: 4}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if state.Phase == game.PhaseEnded {
+		t.Error("wrong submit should not end the game")
+	}
+	if alice.MaxSubmit != 2 {
+		t.Errorf("MaxSubmit: want 2, got %d", alice.MaxSubmit)
+	}
+	if w := events[0].Payload.(map[string]interface{})["wrong"]; w != 2 {
+		t.Errorf("wrong count: want 2, got %v", w)
 	}
 }
 

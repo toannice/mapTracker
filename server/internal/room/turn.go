@@ -20,6 +20,8 @@ func newActionError(code, msg string) error {
 	return &actionError{code: code, msg: msg}
 }
 
+// AdvanceTurn resolves a turn-consuming action (move or shoot). submit_map is
+// handled separately by the room since it does not consume a turn.
 func AdvanceTurn(state *game.GameState, rng *rand.Rand, playerID game.PlayerID, data *protocol.ActionData) ([]protocol.Event, error) {
 	p, ok := state.Players[playerID]
 	if !ok {
@@ -29,53 +31,85 @@ func AdvanceTurn(state *game.GameState, rng *rand.Rand, playerID game.PlayerID, 
 	switch data.Kind {
 	case protocol.ActionMove:
 		return applyMove(state, rng, p, game.Direction(data.Direction))
-	case protocol.ActionPickup:
-		return applyPickup(state, p)
 	case protocol.ActionShoot:
 		return applyShoot(state, p, game.Direction(data.Direction))
-	case protocol.ActionSubmitMap:
-		return applySubmitMap(state, p)
 	default:
 		return nil, newActionError("UNKNOWN_ACTION", fmt.Sprintf("unknown action: %s", data.Kind))
 	}
 }
 
 func applyMove(state *game.GameState, rng *rand.Rand, p *game.Player, dir game.Direction) ([]protocol.Event, error) {
-	newPos, err := stepPosition(p.Pos, dir, state.MapSize)
-	if err != nil {
-		return nil, err
+	dx, dy, ok := dirDelta(dir)
+	if !ok {
+		return nil, newActionError("INVALID_DIRECTION", fmt.Sprintf("invalid direction: %s", dir))
+	}
+
+	friendly := friendlyDirection(dir)
+	newPos := game.Position{X: p.Pos.X + dx, Y: p.Pos.Y + dy}
+
+	// Out of bounds or interior wall → wasted turn. Broadcast a failed move;
+	// the event never distinguishes border from wall (others must deduce).
+	if !inBounds(newPos, state.MapSize) || state.Grid[newPos.Y][newPos.X].Kind == game.CellWall {
+		return []protocol.Event{{
+			Kind: protocol.EventPlayerMoved,
+			Payload: map[string]interface{}{
+				"playerName": p.Name,
+				"direction":  friendly,
+				"success":    false,
+			},
+		}}, nil
 	}
 
 	p.Pos = newPos
 	p.VisitedCells[newPos] = true
 
 	cell := state.Grid[newPos.Y][newPos.X]
+	blockType := "blank"
+	bulletFull := false
 	var gameEvents []game.GameEvent
 
 	switch cell.Kind {
+	case game.CellBullet:
+		blockType = "bullet"
+		if hasBullet(p) {
+			bulletFull = true // already holding one — capped at 1
+		} else {
+			p.Inventory = append(p.Inventory, game.Item{
+				ID:   fmt.Sprintf("bullet-%d-%d", newPos.X, newPos.Y),
+				Kind: game.ItemBullet,
+			})
+		}
 	case game.CellReward:
+		blockType = "reward"
 		gameEvents = game.ResolveReward(state, p, rng)
 	case game.CellTrap:
+		blockType = "trap"
 		gameEvents = game.ResolveTrap(state, p, rng)
 	case game.CellPortalA, game.CellPortalB:
+		blockType = "portal"
 		gameEvents = game.ResolvePortal(state, p)
 	}
 
-	return toProtocolEvents(gameEvents), nil
-}
-
-func applyPickup(state *game.GameState, p *game.Player) ([]protocol.Event, error) {
-	cell := state.Grid[p.Pos.Y][p.Pos.X]
-	if cell.Kind != game.CellBullet {
-		return nil, newActionError("NOTHING_TO_PICKUP", "no item to pick up here")
+	moveEvent := protocol.Event{
+		Kind: protocol.EventPlayerMoved,
+		Payload: map[string]interface{}{
+			"playerName": p.Name,
+			"direction":  friendly,
+			"success":    true,
+			"blockType":  blockType,
+			"bulletFull": bulletFull,
+		},
 	}
-	itemID := fmt.Sprintf("bullet-%d-%d", p.Pos.X, p.Pos.Y)
-	p.Inventory = append(p.Inventory, game.Item{ID: itemID, Kind: game.ItemBullet})
-	// tile stays (infinite pickups)
-	return []protocol.Event{}, nil
+
+	return append([]protocol.Event{moveEvent}, toProtocolEvents(gameEvents)...), nil
 }
 
 func applyShoot(state *game.GameState, shooter *game.Player, dir game.Direction) ([]protocol.Event, error) {
+	dx, dy, ok := dirDelta(dir)
+	if !ok {
+		return nil, newActionError("INVALID_DIRECTION", fmt.Sprintf("invalid direction: %s", dir))
+	}
+
 	bulletIdx := -1
 	for i, item := range shooter.Inventory {
 		if item.Kind == game.ItemBullet {
@@ -90,14 +124,19 @@ func applyShoot(state *game.GameState, shooter *game.Player, dir game.Direction)
 	shooter.Inventory = append(shooter.Inventory[:bulletIdx], shooter.Inventory[bulletIdx+1:]...)
 
 	events := []protocol.Event{{
-		Kind:    protocol.EventShotFired,
-		Payload: map[string]interface{}{"byPlayerId": string(shooter.ID), "direction": string(dir)},
+		Kind: protocol.EventShotFired,
+		Payload: map[string]interface{}{
+			"byPlayerId":   string(shooter.ID),
+			"byPlayerName": shooter.Name,
+			"direction":    friendlyDirection(dir),
+		},
 	}}
 
 	pos := shooter.Pos
 	for {
-		next, err := stepPosition(pos, dir, state.MapSize)
-		if err != nil {
+		next := game.Position{X: pos.X + dx, Y: pos.Y + dy}
+		// Bullet stops at the map border and at interior walls.
+		if !inBounds(next, state.MapSize) || state.Grid[next.Y][next.X].Kind == game.CellWall {
 			break
 		}
 		pos = next
@@ -134,37 +173,109 @@ func applyShoot(state *game.GameState, shooter *game.Player, dir game.Direction)
 	return events, nil
 }
 
-func applySubmitMap(state *game.GameState, p *game.Player) ([]protocol.Event, error) {
-	total := state.MapSize * state.MapSize
-	visited := len(p.VisitedCells)
-	if visited < total {
-		return nil, newActionError("MAP_INCOMPLETE",
-			fmt.Sprintf("%d cells remain", total-visited))
+// applySubmitMap compares a player's reconstructed wall set against the real
+// one. Exact match wins; otherwise it costs a submit attempt. Never costs a
+// turn — the room calls this outside the turn flow.
+func applySubmitMap(state *game.GameState, p *game.Player, walls []game.Position) ([]protocol.Event, error) {
+	if p.MaxSubmit <= 0 {
+		return nil, newActionError("NO_SUBMIT_LEFT", "no submit attempts remaining")
 	}
-	state.Phase = game.PhaseEnded
-	state.Winner = &p.ID
-	state.WinReason = "map_complete"
-	return []protocol.Event{{Kind: protocol.EventMapSubmitted, Payload: map[string]string{"playerName": p.Name}}}, nil
+
+	realWalls := make(map[game.Position]bool)
+	for y, row := range state.Grid {
+		for x, cell := range row {
+			if cell.Kind == game.CellWall {
+				realWalls[game.Position{X: x, Y: y}] = true
+			}
+		}
+	}
+	submitted := make(map[game.Position]bool)
+	for _, w := range walls {
+		if inBounds(w, state.MapSize) {
+			submitted[w] = true
+		}
+	}
+
+	// symmetric difference: walls missed + cells wrongly marked as wall
+	wrong := 0
+	for w := range realWalls {
+		if !submitted[w] {
+			wrong++
+		}
+	}
+	for w := range submitted {
+		if !realWalls[w] {
+			wrong++
+		}
+	}
+
+	if wrong == 0 {
+		state.Phase = game.PhaseEnded
+		state.Winner = &p.ID
+		state.WinReason = "map_complete"
+		return []protocol.Event{{
+			Kind: protocol.EventMapSubmitted,
+			Payload: map[string]interface{}{
+				"playerName": p.Name,
+				"correct":    true,
+				"wrong":      0,
+			},
+		}}, nil
+	}
+
+	p.MaxSubmit--
+	return []protocol.Event{{
+		Kind: protocol.EventMapSubmitted,
+		Payload: map[string]interface{}{
+			"playerName":  p.Name,
+			"correct":     false,
+			"wrong":       wrong,
+			"submitsLeft": p.MaxSubmit,
+		},
+	}}, nil
 }
 
-func stepPosition(pos game.Position, dir game.Direction, mapSize int) (game.Position, error) {
-	newPos := pos
+func hasBullet(p *game.Player) bool {
+	for _, item := range p.Inventory {
+		if item.Kind == game.ItemBullet {
+			return true
+		}
+	}
+	return false
+}
+
+func dirDelta(dir game.Direction) (int, int, bool) {
 	switch dir {
 	case game.DirN:
-		newPos.Y--
+		return 0, -1, true
 	case game.DirS:
-		newPos.Y++
+		return 0, 1, true
 	case game.DirE:
-		newPos.X++
+		return 1, 0, true
 	case game.DirW:
-		newPos.X--
-	default:
-		return pos, newActionError("INVALID_DIRECTION", fmt.Sprintf("invalid direction: %s", dir))
+		return -1, 0, true
 	}
-	if newPos.X < 0 || newPos.X >= mapSize || newPos.Y < 0 || newPos.Y >= mapSize {
-		return pos, newActionError("INVALID_DIRECTION", "move out of bounds")
+	return 0, 0, false
+}
+
+// friendlyDirection maps internal compass directions to the up/down/left/right
+// vocabulary used in event payloads and the UI.
+func friendlyDirection(dir game.Direction) string {
+	switch dir {
+	case game.DirN:
+		return "up"
+	case game.DirS:
+		return "down"
+	case game.DirE:
+		return "right"
+	case game.DirW:
+		return "left"
 	}
-	return newPos, nil
+	return string(dir)
+}
+
+func inBounds(pos game.Position, mapSize int) bool {
+	return pos.X >= 0 && pos.X < mapSize && pos.Y >= 0 && pos.Y < mapSize
 }
 
 func toProtocolEvents(gevs []game.GameEvent) []protocol.Event {

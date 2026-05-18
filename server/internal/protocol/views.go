@@ -13,6 +13,14 @@ type SelfView struct {
 	VisitedCount int           `json:"visitedCount"`
 	TotalCells   int           `json:"totalCells"`
 	InfoBlackout bool          `json:"infoBlackout"`
+	SubmitsLeft  int           `json:"submitsLeft"`
+}
+
+// MapStats is aggregate-only map info (counts, no positions) — safe to share
+// with every player. Backs the client "Info" button.
+type MapStats struct {
+	MapSize int            `json:"mapSize"`
+	Counts  map[string]int `json:"counts"`
 }
 
 type OtherPlayerView struct {
@@ -35,6 +43,37 @@ type PlayerView struct {
 	CurrentTurn game.PlayerID     `json:"currentTurn"`
 	Turn        int               `json:"turn"`
 	Phase       game.Phase        `json:"phase"`
+	MapStats    *MapStats         `json:"mapStats,omitempty"`
+}
+
+// buildMapStats aggregates cell-kind counts. portal_a + portal_b collapse to
+// "portal"; empty maps to "blank".
+func buildMapStats(state *game.GameState) *MapStats {
+	if len(state.Grid) == 0 {
+		return nil
+	}
+	counts := map[string]int{
+		"wall": 0, "blank": 0, "trap": 0, "reward": 0, "bullet": 0, "portal": 0,
+	}
+	for _, row := range state.Grid {
+		for _, cell := range row {
+			switch cell.Kind {
+			case game.CellWall:
+				counts["wall"]++
+			case game.CellEmpty:
+				counts["blank"]++
+			case game.CellTrap:
+				counts["trap"]++
+			case game.CellReward:
+				counts["reward"]++
+			case game.CellBullet:
+				counts["bullet"]++
+			case game.CellPortalA, game.CellPortalB:
+				counts["portal"]++
+			}
+		}
+	}
+	return &MapStats{MapSize: state.MapSize, Counts: counts}
 }
 
 func BuildPlayerView(state *game.GameState, playerID game.PlayerID, events []Event) PlayerView {
@@ -49,6 +88,7 @@ func BuildPlayerView(state *game.GameState, playerID game.PlayerID, events []Eve
 		VisitedCount: len(p.VisitedCells),
 		TotalCells:   state.MapSize * state.MapSize,
 		InfoBlackout: p.InfoBlackout,
+		SubmitsLeft:  p.MaxSubmit,
 	}
 	if self.Inventory == nil {
 		self.Inventory = []game.Item{}
@@ -97,6 +137,7 @@ func BuildPlayerView(state *game.GameState, playerID game.PlayerID, events []Eve
 		CurrentTurn: currentTurn,
 		Turn:        state.Turn,
 		Phase:       state.Phase,
+		MapStats:    buildMapStats(state),
 	}
 }
 
