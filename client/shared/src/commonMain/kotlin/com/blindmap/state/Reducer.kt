@@ -1,6 +1,7 @@
 package com.blindmap.state
 
 import com.blindmap.protocol.Envelope
+import com.blindmap.protocol.ErrorData
 import com.blindmap.protocol.GameOverData
 import com.blindmap.protocol.LobbyView
 import com.blindmap.protocol.PlayerView
@@ -43,8 +44,18 @@ fun reduce(state: ClientGameState, envelope: Envelope): ClientGameState {
             state.copy(gameOver = data, phase = GamePhase.Ended)
         }
         "error" -> {
-            // ErrorData has code + message; surface the message
-            val msg = envelope.data.toString()
+            val msg = try {
+                val err = json.decodeFromJsonElement<ErrorData>(envelope.data)
+                when (err.code) {
+                    "INVALID_DIRECTION" -> "Wall! Can't move that way."
+                    "NOTHING_TO_PICKUP" -> "Nothing to pick up here."
+                    "NO_BULLET"         -> "No bullet in inventory."
+                    "MAP_INCOMPLETE"    -> "Map incomplete — ${err.message}"
+                    else                -> err.message
+                }
+            } catch (_: Exception) {
+                envelope.data.toString()
+            }
             state.copy(errorMessage = msg)
         }
         "pong" -> state

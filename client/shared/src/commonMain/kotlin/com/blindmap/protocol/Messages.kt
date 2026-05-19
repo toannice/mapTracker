@@ -25,3 +25,6 @@ data class ActionData(
     val direction: String? = null,
     @SerialName("itemId") val itemId: String? = null
 )
+
+@Serializable
+data class ErrorData(val code: String, val message: String)

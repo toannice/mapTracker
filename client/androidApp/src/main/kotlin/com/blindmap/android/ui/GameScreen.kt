@@ -34,12 +34,14 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import com.blindmap.protocol.ActionData
+import com.blindmap.protocol.description
 import com.blindmap.state.ConnState
 import com.blindmap.state.GamePhase
 import com.blindmap.viewmodel.GameViewModel
@@ -81,7 +83,11 @@ fun GameScreen(vm: GameViewModel, onNavigateToGameOver: () -> Unit) {
     }
 
     LaunchedEffect(state.errorMessage) {
-        state.errorMessage?.let { snackbarMsg = it }
+        state.errorMessage?.let {
+            snackbarMsg = it
+            delay(3000L)
+            snackbarMsg = null
+        }
     }
 
     Column(
@@ -198,7 +204,7 @@ fun GameScreen(vm: GameViewModel, onNavigateToGameOver: () -> Unit) {
                 Text("Events", style = MaterialTheme.typography.labelMedium)
                 LazyColumn(modifier = Modifier.height(80.dp)) {
                     items(recentEvents.takeLast(5)) { event ->
-                        Text("• ${eventDescription(event.kind)}", style = MaterialTheme.typography.bodySmall)
+                        Text("• ${event.description()}", style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
@@ -221,14 +227,3 @@ private fun cellColor(kind: String): Color = when (kind) {
     else -> Color(0xFFBBDEFB)
 }
 
-private fun eventDescription(kind: String): String = when (kind) {
-    "trap_triggered" -> "Trap triggered!"
-    "reward_activated" -> "Reward activated!"
-    "player_eliminated" -> "Player eliminated!"
-    "shot_fired" -> "Shot fired!"
-    "map_submitted" -> "Map submitted!"
-    "portal_used" -> "Teleported!"
-    "clue_received" -> "Clue received!"
-    "turn_skipped" -> "Turn skipped"
-    else -> kind
-}
