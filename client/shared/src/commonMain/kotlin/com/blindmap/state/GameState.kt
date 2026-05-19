@@ -4,7 +4,7 @@ import com.blindmap.protocol.GameOverData
 import com.blindmap.protocol.LobbyView
 import com.blindmap.protocol.PlayerView
 
-enum class ConnState { Connecting, Connected, Reconnecting, Failed }
+enum class ConnState { Idle, Connecting, Connected, Reconnecting, Failed }
 
 enum class GamePhase { Lobby, Active, Ended }
 
@@ -15,6 +15,6 @@ data class ClientGameState(
     val lobby: LobbyView? = null,
     val game: PlayerView? = null,
     val gameOver: GameOverData? = null,
-    val connState: ConnState = ConnState.Connecting,
+    val connState: ConnState = ConnState.Idle,
     val errorMessage: String? = null
 )

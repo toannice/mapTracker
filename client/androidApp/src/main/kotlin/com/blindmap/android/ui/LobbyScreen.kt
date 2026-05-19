@@ -115,7 +115,7 @@ fun LobbyScreen(vm: GameViewModel, serverUrl: String, onNavigateToGame: () -> Un
             }
         }
 
-        if (state.connState == ConnState.Connecting) {
+        if (state.connState == ConnState.Connecting || state.connState == ConnState.Reconnecting) {
             Spacer(Modifier.height(16.dp))
             ColdStartIndicator()
         }

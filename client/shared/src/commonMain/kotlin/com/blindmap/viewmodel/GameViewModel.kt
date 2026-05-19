@@ -10,6 +10,7 @@ import com.blindmap.protocol.JoinData
 import com.blindmap.state.ClientGameState
 import com.blindmap.state.ConnState
 import com.blindmap.state.reduce
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -35,11 +36,26 @@ class GameViewModel : ViewModel() {
         this.currentPlayerName = playerName
 
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(connState = ConnState.Connecting)
-            try {
-                wsClient.connect(serverUrl, roomCode, playerName)
-            } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(connState = ConnState.Failed, errorMessage = e.message)
+            _uiState.value = _uiState.value.copy(connState = ConnState.Connecting, errorMessage = null)
+            val coldStartDeadline = System.currentTimeMillis() + 60_000L
+            var attempt = 0
+            while (true) {
+                try {
+                    wsClient.connect(serverUrl, roomCode, playerName)
+                    break  // session ended normally; onClosed collector handles reconnect
+                } catch (e: Exception) {
+                    val remaining = coldStartDeadline - System.currentTimeMillis()
+                    if (remaining <= 0) {
+                        _uiState.value = _uiState.value.copy(
+                            connState = ConnState.Failed,
+                            errorMessage = "Server unreachable after 60s. Try again."
+                        )
+                        break
+                    }
+                    attempt++
+                    val backoff = minOf(1000L * (1L shl minOf(attempt - 1, 3)), 10_000L)
+                    delay(minOf(backoff, remaining))
+                }
             }
         }
 
