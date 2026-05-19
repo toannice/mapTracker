@@ -1,0 +1,37 @@
+# Go
+*.exe
+*.test
+*.out
+server/out/
+server/vendor/
+
+# Kotlin / Gradle
+client/.gradle/
+client/build/
+client/shared/build/
+client/androidApp/build/
+client/desktopApp/build/
+*.class
+*.jar
+*.iml
+.idea/
+out/
+
+# Docker
+.dockerignore
+
+# Env / secrets
+.env
+.env.*
+*.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temp
+*.tmp
+*.swp
