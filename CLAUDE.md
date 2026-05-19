@@ -141,45 +141,45 @@ Event kinds inside `turn_result.events`: `player_moved`, `trap_triggered`, `rewa
 - **Map logging for debug**: server logs full map state for replay/audit; no active anti-cheat needed beyond authoritative server
 - **RNG seeded with `crypto/rand`**: map generation and item randomization are not reproducible by clients
 
-## Project Status (as of 2026-05-18)
+## Project Status (as of 2026-05-19)
 
-### Completed (branch `001-blind-map-survival`)
-All 53 planned tasks (T001–T053) done and verified end-to-end:
-- Go server live at `https://maptracker-c68n.onrender.com` (Render.com, Singapore)
-- Android APK builds and installs; lobby, game, and game-over screens work
-- `play.ps1` terminal client — W/A/S/D / arrow keys, room create/join
-- Post-plan bugs fixed: `events:null` crash, dark-theme black UI, `currentTurn` advance order
+### MVP — SHIPPED ✓ (merged to `master` 2026-05-19)
 
-### Phase 2 — UX overhaul & map-reconstruction (code complete 2026-05-18)
-Full design: `specs/001-blind-map-survival/phase2.md`.
-- **Server**: interior walls (~25% + flood-fill connectivity); `player_moved` event
-  (no `pos`); wall-hit costs the turn; `pickup` removed (bullet auto-grant, cap 1);
-  `mapStats` aggregate counts; `submit_map` action (no turn cost, `maxSubmit`=3).
-  Built, vetted, race-tested — all passing.
-- **Client (KMP + Android)**: accumulating narrative event feed with 3.5s pop-ups;
-  no x-y / no exploration grid; keypad-only controls; Map reconstruction canvas;
-  Info cell-count table; transient vs connection error separation.
-  ⚠️ Not build-verified — needs JDK 17 (`./gradlew :shared:test :androidApp:assembleDebug`).
-
-### Bugs fixed post-plan
-| Bug | Fix |
+| Milestone | Status |
 |---|---|
-| App crash on `game_start` — `events: null` not nullable | `PlayerView.events: List<Event>? = null` |
-| Android UI invisible (black on black, dark mode) | Force `lightColorScheme()` in `MainActivity` |
-| Phone player buttons always disabled | Server was broadcasting `currentTurn` before advancing index; swapped order in `handleAction` and `checkTurnDeadline` |
+| Phase 1 — core game (T001–T053) | Done |
+| Phase 2 — UX overhaul + map-reconstruction | Done |
+| Cold-start UX (Android + terminal) | Done |
+| Terminal formatted output + shoot/map keys | Done |
+| Merged to `master` | Done |
 
-### Remaining to-do (not in original plan)
+Live server: `https://maptracker-c68n.onrender.com`
 
-**TODO-1 · Cold-start UX** _(in progress)_
-Render free tier sleeps after 15 min idle. Connection takes up to 60s on cold start.
-Android app should show a progress bar + "Waking server…" message while retrying.
-`play.ps1` should print a waiting indicator instead of silently failing.
+### Upgrade backlog (Phase 3+)
 
-**TODO-2 · UX overhaul** — Android done (Phase 2, see above). Terminal remaining:
-- **Terminal (`play.ps1`)**: still prints raw JSON (`< {...}`). Needs a readable
-  per-turn summary block + narrative event lines (the `describeEvent` logic in
-  `shared/protocol/EventNarrator.kt` can be the reference for wording).
-- **Terminal**: increase default turn time and add more action choices to the menu.
+Start each item on a new feature branch via `/speckit-specify`.
 
-**TODO-3 · Merge `001-blind-map-survival` → `main`** _(after Phase 2 build-verified)_
-Open PR, review, squash-merge.
+**UPGRADE-1 · Play-test fixes** _(priority: high — do first)_
+Run real games and fix what breaks. Expected friction areas: turn timer too short for
+new players, map-reconstruction canvas too small on small phones, reconnect edge cases.
+
+**UPGRADE-2 · Matchmaking / public rooms**
+Currently requires sharing a 6-char code out-of-band. Add a lobby browser or
+quick-match queue so strangers can play without coordination.
+
+**UPGRADE-3 · Desktop client (Mordant TUI)**
+`desktopApp/` is in the stack (Mordant TUI) but was never built. Implement it using
+the same KMP shared module — gives a proper keyboard-driven terminal experience
+beyond `play.ps1`.
+
+**UPGRADE-4 · Production hosting**
+Render free tier sleeps after 15 min idle and has no persistence. Move to a paid
+tier or alternative host (Fly.io, Railway) if real players start using it regularly.
+
+**UPGRADE-5 · Persistent game history**
+Server restart currently kills all in-progress games. Add optional SQLite or Redis
+persistence for game state so restarts are transparent to players.
+
+**UPGRADE-6 · Android sound + haptics**
+Wall-hit, elimination, and turn-start events have no audio/haptic feedback.
+Add short vibrations and optional sound effects using Android `AudioManager`.
