@@ -47,6 +47,7 @@ type Player struct {
 	Alive        bool              `json:"alive"`
 	SkipNextTurn bool              `json:"-"`
 	InfoBlackout bool              `json:"-"`
+	MaxSubmit    int               `json:"-"`
 	Inventory    []Item            `json:"-"`
 	VisitedCells map[Position]bool `json:"-"`
 	ConnectedAt  time.Time         `json:"-"`
@@ -64,6 +65,7 @@ type CellKind string
 
 const (
 	CellEmpty   CellKind = "empty"
+	CellWall    CellKind = "wall"
 	CellBullet  CellKind = "bullet"
 	CellReward  CellKind = "reward"
 	CellTrap    CellKind = "trap"

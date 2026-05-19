@@ -113,10 +113,13 @@ docker build -t blind-map-survival .
 
 All WebSocket messages use envelope: `{"type": "<msg_type>", "ts": <epoch_ms>, "data": {...}}`
 
-Client→Server: `join`, `action` (kind: `move`/`use_item`/`pickup`), `ping`
+Client→Server: `join`, `action` (kind: `move`/`shoot`/`submit_map`/`start_game`), `ping`
 Server→Client: `welcome`, `lobby_update`, `game_start`, `turn_result`, `event`, `game_over`, `error`, `pong`, `server_shutdown`
 
-**Wire security rule**: `PlayerView` sent to client X **never** includes position, health, or inventory of other players. Server never trusts client-sent state.
+Event kinds inside `turn_result.events`: `player_moved`, `trap_triggered`, `reward_activated`,
+`player_eliminated`, `shot_fired`, `map_submitted`, `portal_used`, `clue_received`, `turn_skipped`.
+
+**Wire security rule**: `PlayerView` sent to client X **never** includes position, health, or inventory of other players. Server never trusts client-sent state. `player_moved` carries no `pos`; `mapStats` exposes aggregate cell counts only.
 
 ## Environment Variables (Backend)
 
@@ -138,7 +141,7 @@ Server→Client: `welcome`, `lobby_update`, `game_start`, `turn_result`, `event`
 - **Map logging for debug**: server logs full map state for replay/audit; no active anti-cheat needed beyond authoritative server
 - **RNG seeded with `crypto/rand`**: map generation and item randomization are not reproducible by clients
 
-## Project Status (as of 2026-05-17)
+## Project Status (as of 2026-05-18)
 
 ### Completed (branch `001-blind-map-survival`)
 All 53 planned tasks (T001–T053) done and verified end-to-end:
@@ -146,6 +149,17 @@ All 53 planned tasks (T001–T053) done and verified end-to-end:
 - Android APK builds and installs; lobby, game, and game-over screens work
 - `play.ps1` terminal client — W/A/S/D / arrow keys, room create/join
 - Post-plan bugs fixed: `events:null` crash, dark-theme black UI, `currentTurn` advance order
+
+### Phase 2 — UX overhaul & map-reconstruction (code complete 2026-05-18)
+Full design: `specs/001-blind-map-survival/phase2.md`.
+- **Server**: interior walls (~25% + flood-fill connectivity); `player_moved` event
+  (no `pos`); wall-hit costs the turn; `pickup` removed (bullet auto-grant, cap 1);
+  `mapStats` aggregate counts; `submit_map` action (no turn cost, `maxSubmit`=3).
+  Built, vetted, race-tested — all passing.
+- **Client (KMP + Android)**: accumulating narrative event feed with 3.5s pop-ups;
+  no x-y / no exploration grid; keypad-only controls; Map reconstruction canvas;
+  Info cell-count table; transient vs connection error separation.
+  ⚠️ Not build-verified — needs JDK 17 (`./gradlew :shared:test :androidApp:assembleDebug`).
 
 ### Bugs fixed post-plan
 | Bug | Fix |
@@ -161,15 +175,11 @@ Render free tier sleeps after 15 min idle. Connection takes up to 60s on cold st
 Android app should show a progress bar + "Waking server…" message while retrying.
 `play.ps1` should print a waiting indicator instead of silently failing.
 
-**TODO-2 · UX overhaul — terminal & Android** _(next)_
-The game works but is hard to follow. Specific improvements needed:
-- **Terminal (`play.ps1`)**: replace raw JSON log output with a readable game summary per turn:
-  position, whose turn, timer, visited count, recent events — one clean block per update.
-- **Terminal**: show wall-hit feedback (`move out of bounds`) clearly, not as raw error JSON.
+**TODO-2 · UX overhaul** — Android done (Phase 2, see above). Terminal remaining:
+- **Terminal (`play.ps1`)**: still prints raw JSON (`< {...}`). Needs a readable
+  per-turn summary block + narrative event lines (the `describeEvent` logic in
+  `shared/protocol/EventNarrator.kt` can be the reference for wording).
 - **Terminal**: increase default turn time and add more action choices to the menu.
-- **Android**: cleaner event feed — human-readable sentences, not raw event kind strings.
-- **Android**: show wall-hit as a brief toast/snackbar, not silently ignored.
-- **Both**: make the information hierarchy obvious — what happened / what's my state / what can I do.
 
-**TODO-3 · Merge `001-blind-map-survival` → `main`** _(after TODO-1)_
+**TODO-3 · Merge `001-blind-map-survival` → `main`** _(after Phase 2 build-verified)_
 Open PR, review, squash-merge.

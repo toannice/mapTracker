@@ -68,6 +68,54 @@ class ReducerTest {
     }
 
     @Test
+    fun eventLogAccumulatesAcrossTurns() {
+        fun turnResult(events: String) = """{
+            "self":{"id":"p1","name":"Alice","pos":{"x":0,"y":0},"alive":true,"inventory":[],"visitedCount":1,"totalCells":25,"infoBlackout":false,"submitsLeft":3},
+            "others":[],
+            "visibleMap":[],
+            "events":$events,
+            "turnEndsAt":9999999999999,
+            "currentTurn":"p1",
+            "turn":1,
+            "phase":"active"
+        }"""
+
+        var state = reduce(
+            ClientGameState(playerId = "p1"),
+            Envelope("game_start", 0L, json.parseToJsonElement(turnResult("[]")))
+        )
+        assertEquals(0, state.eventLog.size)
+
+        state = reduce(
+            state,
+            Envelope("turn_result", 1L, json.parseToJsonElement(
+                turnResult("""[{"kind":"player_moved","payload":{"playerName":"Alice","direction":"up","success":true,"blockType":"blank"}}]""")
+            ))
+        )
+        assertEquals(1, state.eventLog.size)
+        assertEquals("Alice moved up — a blank tile", state.eventLog[0].text)
+
+        state = reduce(
+            state,
+            Envelope("turn_result", 2L, json.parseToJsonElement(
+                turnResult("""[{"kind":"player_moved","payload":{"playerName":"Bob","direction":"left","success":false}}]""")
+            ))
+        )
+        // Accumulates — the previous entry is still there.
+        assertEquals(2, state.eventLog.size)
+        assertEquals("Bob moved left — hit a wall", state.eventLog[1].text)
+    }
+
+    @Test
+    fun errorEnvelopeSetsTransientError() {
+        val state = reduce(
+            ClientGameState(playerId = "p1"),
+            Envelope("error", 0L, json.parseToJsonElement("""{"code":"NOT_YOUR_TURN","message":"it is not your turn"}"""))
+        )
+        assertEquals("it is not your turn", state.transientError)
+    }
+
+    @Test
     fun otherPlayerViewHasNoPos() {
         val gameStartJson = """{
             "self":{"id":"p1","name":"Alice","pos":{"x":0,"y":0},"alive":true,"inventory":[],"visitedCount":1,"totalCells":25,"infoBlackout":false},

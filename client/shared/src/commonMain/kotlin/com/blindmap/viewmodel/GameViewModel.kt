@@ -7,6 +7,7 @@ import com.blindmap.net.WebSocketClient
 import com.blindmap.protocol.ActionData
 import com.blindmap.protocol.Envelope
 import com.blindmap.protocol.JoinData
+import com.blindmap.protocol.Position
 import com.blindmap.state.ClientGameState
 import com.blindmap.state.ConnState
 import com.blindmap.state.reduce
@@ -36,7 +37,7 @@ class GameViewModel : ViewModel() {
         this.currentPlayerName = playerName
 
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(connState = ConnState.Connecting, errorMessage = null)
+            _uiState.value = _uiState.value.copy(connState = ConnState.Connecting, connectionError = null)
             val coldStartDeadline = System.currentTimeMillis() + 60_000L
             var attempt = 0
             while (true) {
@@ -48,7 +49,7 @@ class GameViewModel : ViewModel() {
                     if (remaining <= 0) {
                         _uiState.value = _uiState.value.copy(
                             connState = ConnState.Failed,
-                            errorMessage = "Server unreachable after 60s. Try again."
+                            connectionError = "Server unreachable after 60s. Try again."
                         )
                         break
                     }
@@ -106,6 +107,24 @@ class GameViewModel : ViewModel() {
 
     fun sendStartGame() {
         sendAction(ActionData(kind = "start_game"))
+    }
+
+    fun sendMove(direction: String) {
+        sendAction(ActionData(kind = "move", direction = direction))
+    }
+
+    fun sendShoot(direction: String) {
+        sendAction(ActionData(kind = "shoot", direction = direction))
+    }
+
+    /** Submits a reconstructed wall layout. Does not consume a turn. */
+    fun sendSubmitMap(walls: List<Position>) {
+        sendAction(ActionData(kind = "submit_map", walls = walls))
+    }
+
+    /** Clears the transient error banner once the UI has shown it. */
+    fun dismissTransientError() {
+        _uiState.value = _uiState.value.copy(transientError = null)
     }
 
     fun reset() {

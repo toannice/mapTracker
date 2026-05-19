@@ -109,6 +109,7 @@ func (r *Room) handleJoin(ctx context.Context, msg conn.IncomingMsg) {
 		Name:         data.PlayerName,
 		Alive:        true,
 		Inventory:    []game.Item{},
+		MaxSubmit:    3,
 		VisitedCells: make(map[game.Position]bool),
 		ConnectedAt:  time.Now(),
 		LastSeen:     time.Now(),
@@ -140,6 +141,29 @@ func (r *Room) handleAction(ctx context.Context, msg conn.IncomingMsg) {
 	if r.state.Phase != game.PhaseActive {
 		return
 	}
+
+	// submit_map is resolved outside the turn flow — any player, any time,
+	// and it never consumes a turn.
+	if data.Kind == protocol.ActionSubmitMap {
+		p, ok := r.state.Players[msg.PlayerID]
+		if !ok {
+			return
+		}
+		events, err := applySubmitMap(r.state, p, data.Walls)
+		if err != nil {
+			r.sendError(msg.PlayerID, errCode(err), err.Error())
+			return
+		}
+		if r.state.Phase == game.PhaseEnded {
+			r.broadcastTurnResult(events)
+			r.broadcastGameOver()
+			time.AfterFunc(60*time.Second, func() { r.onDelete(r.state.RoomID) })
+			return
+		}
+		r.broadcastTurnResult(events)
+		return
+	}
+
 	if len(r.state.TurnOrder) == 0 {
 		return
 	}
@@ -240,7 +264,7 @@ func (r *Room) startGame() {
 	occupied := make(map[game.Position]bool)
 	for id, p := range r.state.Players {
 		r.state.TurnOrder = append(r.state.TurnOrder, id)
-		pos := randomFreePos(r.state.MapSize, r.rng, occupied)
+		pos := randomFreePos(r.state.Grid, r.state.MapSize, r.rng, occupied)
 		occupied[pos] = true
 		p.Pos = pos
 		p.StartPos = pos
@@ -262,7 +286,7 @@ func (r *Room) checkTurnDeadline() {
 	currentTurn := r.state.TurnOrder[r.state.CurrentIdx%len(r.state.TurnOrder)]
 	events := []protocol.Event{{
 		Kind:    protocol.EventTurnSkipped,
-		Payload: map[string]string{"playerId": string(currentTurn)},
+		Payload: map[string]string{"playerId": string(currentTurn), "playerName": r.playerName(currentTurn)},
 	}}
 	r.advanceTurnIndex()
 	r.broadcastTurnResult(events)
@@ -281,7 +305,7 @@ func (r *Room) advanceTurnIndex() {
 		}
 		if p.SkipNextTurn {
 			p.SkipNextTurn = false
-			evs := []protocol.Event{{Kind: protocol.EventTurnSkipped, Payload: map[string]string{"playerId": string(next)}}}
+			evs := []protocol.Event{{Kind: protocol.EventTurnSkipped, Payload: map[string]string{"playerId": string(next), "playerName": r.playerName(next)}}}
 			r.broadcastTurnResult(evs)
 			continue
 		}
@@ -384,12 +408,13 @@ func cryptoRandSeed() uint64 {
 	return n
 }
 
-func randomFreePos(mapSize int, rng *mrand.Rand, occupied map[game.Position]bool) game.Position {
+func randomFreePos(grid [][]game.Cell, mapSize int, rng *mrand.Rand, occupied map[game.Position]bool) game.Position {
 	for {
 		pos := game.Position{X: rng.IntN(mapSize), Y: rng.IntN(mapSize)}
-		if !occupied[pos] {
-			return pos
+		if occupied[pos] || grid[pos.Y][pos.X].Kind == game.CellWall {
+			continue
 		}
+		return pos
 	}
 }
 
@@ -400,6 +425,13 @@ type codeError struct {
 
 func (e *codeError) Error() string { return e.msg }
 func (e *codeError) Code() string  { return e.code }
+
+func (r *Room) playerName(id game.PlayerID) string {
+	if p, ok := r.state.Players[id]; ok {
+		return p.Name
+	}
+	return ""
+}
 
 func errCode(err error) string {
 	type coder interface{ Code() string }

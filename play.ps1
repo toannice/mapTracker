@@ -215,7 +215,6 @@ Write-Host ""
 Write-Host "Controls:" -ForegroundColor Yellow
 Write-Host "  W/A/S/D or Arrow keys = Move"
 Write-Host "  G                     = Start game (host only)"
-Write-Host "  P                     = Pick up item"
 Write-Host "  M                     = Submit map (win condition)"
 Write-Host "  F then W/A/S/D        = Shoot in direction"
 Write-Host "  Q                     = Quit"
@@ -252,7 +251,6 @@ while ($shared.ws.State -eq 'Open') {
         'D'         { Action '{"kind":"move","direction":"E"}' }
         'RightArrow'{ Action '{"kind":"move","direction":"E"}' }
         'G'         { Action '{"kind":"start_game"}' }
-        'P'         { Action '{"kind":"pickup"}' }
         'M'         { Action '{"kind":"submit_map"}' }
         'F'         { $shootPending = $true
                       Write-Host "Shoot direction: W/A/S/D" -ForegroundColor DarkCyan

@@ -23,8 +23,6 @@ data class JoinData(
 data class ActionData(
     val kind: String,
     val direction: String? = null,
-    @SerialName("itemId") val itemId: String? = null
+    @SerialName("itemId") val itemId: String? = null,
+    val walls: List<Position>? = null
 )
-
-@Serializable
-data class ErrorData(val code: String, val message: String)

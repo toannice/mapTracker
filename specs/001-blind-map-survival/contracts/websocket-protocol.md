@@ -1,6 +1,6 @@
 # WebSocket Protocol Contract
 
-**Version**: 1.0
+**Version**: 2.0 (Phase 2 — see `../phase2.md`)
 **Transport**: WebSocket (WSS only in production, WS allowed on localhost)
 **Endpoint**: `GET /ws?room=<roomCode>&name=<playerName>`
 **Format**: JSON text frames
@@ -47,7 +47,8 @@ For **reconnect** (resuming a session), set `playerId` to the original player ID
 ---
 
 ### `action` (during Active phase)
-One action per turn. The server rejects actions sent out of turn or in wrong phase.
+Most actions consume a turn (`move`, `shoot`). `submit_map` does not. The server
+rejects turn-consuming actions sent out of turn or in the wrong phase.
 
 **Move**:
 ```json
@@ -59,15 +60,10 @@ One action per turn. The server rejects actions sent out of turn or in wrong pha
 ```
 `direction` must be one of: `"N"`, `"S"`, `"E"`, `"W"`.
 
-**Pickup** (picks up item on current cell):
-```json
-{
-  "type": "action",
-  "ts": 1715760000000,
-  "data": { "kind": "pickup" }
-}
-```
-Fails silently if cell has no pickable item. Server sends `error` event.
+Moving into the map border or an interior wall does **not** error — it emits a
+`player_moved` event with `success: false` and still consumes the turn.
+Moving onto a `bullet` cell auto-grants a bullet (capped at 1; no `pickup`
+action exists). There is no `pickup` action.
 
 **Shoot**:
 ```json
@@ -79,15 +75,21 @@ Fails silently if cell has no pickable item. Server sends `error` event.
 ```
 Requires player to have at least one bullet in inventory. Bullet travels until hitting a player (instant elimination) or the map boundary.
 
-**Submit Map**:
+**Submit Map** (does NOT consume a turn — allowed any time during Active phase):
 ```json
 {
   "type": "action",
   "ts": 1715760000000,
-  "data": { "kind": "submit_map" }
+  "data": { "kind": "submit_map", "walls": [ {"x":1,"y":1}, {"x":2,"y":3} ] }
 }
 ```
-Server validates that `len(player.VisitedCells) == mapSize * mapSize`. If invalid, returns `error` with remaining count.
+`walls` is the set of cells the player believes are walls. The server compares
+it to the real wall set:
+- **Exact match** → that player wins (`winReason: "map_complete"`).
+- **Mismatch** → the player's `submitsLeft` decrements; a `map_submitted` event
+  is broadcast to everyone with the `wrong` count (symmetric difference).
+
+`submitsLeft` starts at 3. At 0, `submit_map` returns `error` `NO_SUBMIT_LEFT`.
 
 ---
 
@@ -145,7 +147,8 @@ Sent to all players when host starts the game.
   "ts": 1715760000000,
   "data": {
     "self": { "id": "...", "name": "Alice", "pos": {"x":3,"y":7}, "alive": true,
-              "inventory": [], "visitedCount": 1, "totalCells": 400, "infoBlackout": false },
+              "inventory": [], "visitedCount": 1, "totalCells": 400,
+              "infoBlackout": false, "submitsLeft": 3 },
     "others": [
       { "id": "...", "name": "Bob", "alive": true }
     ],
@@ -154,10 +157,16 @@ Sent to all players when host starts the game.
     "turnEndsAt": 1715760030000,
     "currentTurn": "<playerIdOfFirstPlayer>",
     "turn": 1,
-    "phase": "active"
+    "phase": "active",
+    "mapStats": {
+      "mapSize": 20,
+      "counts": { "wall": 100, "blank": 250, "trap": 12, "reward": 20, "bullet": 40, "portal": 4 }
+    }
   }
 }
 ```
+`mapStats` is aggregate-only (cell-kind counts, no positions) — shared knowledge
+for all players, backing the client "Info" button.
 
 ---
 
@@ -165,73 +174,68 @@ Sent to all players when host starts the game.
 Sent to each player individually (filtered view) after every turn resolves.
 
 Payload is identical to `game_start` but reflects updated state after the turn.
+The `events` array holds what happened this turn. Events are **broadcast to
+every player** (each sees the same list) so all actions are public knowledge —
+the one exception is `clue_received`, which is suppressed for a player under
+`infoBlackout`. The server sends only the current turn's events; the client
+accumulates history itself.
 
 ---
 
-### `event`
-Discrete game notifications — scoped to specific recipient(s).
+### Events (entries in `turn_result.events`)
 
-**Clue received** (compass or reward):
+Each entry is `{ "kind": "<kind>", "payload": { ... } }`. The standalone `event`
+message type is reserved but unused — events travel inside `turn_result`.
+
+**Player moved** — emitted for every move, success or failure. Carries **no
+`pos`** (coordinates are never revealed for normal moves):
 ```json
-{
-  "type": "event",
-  "ts": 1715760000000,
-  "data": {
-    "kind": "clue_received",
-    "payload": {
-      "clueType": "nearest_direction",
-      "value": "NE"
-    }
-  }
-}
+{ "kind": "player_moved",
+  "payload": { "playerName": "Alice", "direction": "up", "success": true,
+               "blockType": "bullet", "bulletFull": false } }
+```
+`direction` is `up`/`down`/`left`/`right`. `success: false` → hit a wall/border
+(no `blockType`). `blockType` ∈ `blank`/`bullet`/`reward`/`trap`/`portal`.
+
+**Clue received** (compass or reward) — private; suppressed under `infoBlackout`:
+```json
+{ "kind": "clue_received", "payload": { "type": "nearest_direction", "direction": "NE" } }
 ```
 
 **Player eliminated**:
 ```json
-{
-  "type": "event",
-  "ts": 1715760000000,
-  "data": {
-    "kind": "player_eliminated",
-    "payload": { "playerName": "Bob", "byPlayerName": "Alice" }
-  }
-}
+{ "kind": "player_eliminated", "payload": { "playerName": "Bob", "byPlayerName": "Alice" } }
 ```
-Sent to all players.
 
-**Trap triggered** (sent only to the trapped player):
+**Shot fired**:
 ```json
-{
-  "type": "event",
-  "ts": 1715760000000,
-  "data": {
-    "kind": "trap_triggered",
-    "payload": { "effect": "lose_next_turn" }
-  }
-}
+{ "kind": "shot_fired",
+  "payload": { "byPlayerId": "...", "byPlayerName": "Alice", "direction": "right" } }
 ```
-`effect` is one of: `"reveal_position"`, `"random_teleport"`, `"lose_next_turn"`, `"lose_bullet"`, `"info_blackout"`.
+
+**Trap triggered**:
+```json
+{ "kind": "trap_triggered", "payload": { "effect": "lose_next_turn" } }
+```
+`effect` ∈ `reveal_position` (keeps `pos`), `random_teleport`, `lose_next_turn`,
+`lose_bullet`, `info_blackout`.
 
 **Reward activated**:
 ```json
-{
-  "type": "event",
-  "ts": 1715760000000,
-  "data": {
-    "kind": "reward_activated",
-    "payload": { "effect": "nearest_direction", "value": "SW" }
-  }
-}
+{ "kind": "reward_activated", "payload": { "effect": "nearest_direction", "direction": "SW" } }
 ```
-`effect` is one of: `"all_positions_revealed"`, `"nearest_direction"`, `"all_bullet_locations"`.
+`effect` ∈ `all_positions_revealed` (keeps positions), `nearest_direction`,
+`all_bullet_locations` (keeps locations).
 
-**Turn skipped** (auto-skip on timeout or skip-next-turn trap):
+**Map submitted** — broadcast after any `submit_map`:
 ```json
-{
-  "type": "event",
-  "ts": 1715760000000,
-  "data": { "kind": "turn_skipped", "payload": { "playerName": "Carol", "reason": "timeout" } }
-}
+{ "kind": "map_submitted",
+  "payload": { "playerName": "Alice", "correct": false, "wrong": 4, "submitsLeft": 2 } }
+```
+
+**Turn skipped** (timeout or skip-next-turn trap):
+```json
+{ "kind": "turn_skipped", "payload": { "playerId": "...", "playerName": "Carol" } }
 ```
 
 ---
@@ -268,14 +272,16 @@ Sent only to the requesting client for invalid actions.
 **Error codes**:
 | Code | Trigger |
 |------|---------|
-| `NOT_YOUR_TURN` | Action sent when it is another player's turn |
+| `NOT_YOUR_TURN` | Turn-consuming action sent when it is another player's turn |
 | `INVALID_DIRECTION` | Direction not in {N,S,E,W} |
 | `NO_BULLET` | Shoot action with no bullet in inventory |
-| `NOTHING_TO_PICKUP` | Pickup action on empty cell |
-| `MAP_INCOMPLETE` | Submit Map when not all cells visited; includes `remaining` count |
+| `NO_SUBMIT_LEFT` | `submit_map` when `submitsLeft` has reached 0 |
 | `ROOM_NOT_FOUND` | Room code does not exist |
 | `ROOM_FULL` | Room already has 8 players |
 | `WRONG_PHASE` | Action sent during Lobby or Ended phase |
+
+Note: hitting a wall/border is **not** an error — it is a normal `player_moved`
+event with `success: false`. `pickup` and `MAP_INCOMPLETE` no longer exist.
 
 ---
 

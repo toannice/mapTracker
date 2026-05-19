@@ -1,13 +1,17 @@
 package com.blindmap.state
 
 import com.blindmap.protocol.Envelope
-import com.blindmap.protocol.ErrorData
+import com.blindmap.protocol.Event
 import com.blindmap.protocol.GameOverData
 import com.blindmap.protocol.LobbyView
 import com.blindmap.protocol.PlayerView
 import com.blindmap.protocol.WelcomeData
+import com.blindmap.protocol.describeEvent
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.jsonPrimitive
 
 private val json = Json { ignoreUnknownKeys = true }
 
@@ -20,7 +24,7 @@ fun reduce(state: ClientGameState, envelope: Envelope): ClientGameState {
                 lobby = data.roomState,
                 phase = GamePhase.Lobby,
                 connState = ConnState.Connected,
-                errorMessage = null
+                connectionError = null
             )
         }
         "lobby_update" -> {
@@ -29,11 +33,23 @@ fun reduce(state: ClientGameState, envelope: Envelope): ClientGameState {
         }
         "game_start" -> {
             val view = json.decodeFromJsonElement<PlayerView>(envelope.data)
-            state.copy(game = view, phase = GamePhase.Active)
+            // New match — reset the accumulating feed.
+            val seeded = appendEvents(emptyList(), state.nextLogSeq, view.events, envelope.ts)
+            state.copy(
+                game = view,
+                phase = GamePhase.Active,
+                eventLog = seeded.first,
+                nextLogSeq = seeded.second
+            )
         }
         "turn_result" -> {
             val view = json.decodeFromJsonElement<PlayerView>(envelope.data)
-            state.copy(game = view)
+            val appended = appendEvents(state.eventLog, state.nextLogSeq, view.events, envelope.ts)
+            state.copy(
+                game = view,
+                eventLog = appended.first,
+                nextLogSeq = appended.second
+            )
         }
         "event" -> {
             // events are delivered inside turn_result PlayerView.events; this handles standalone events
@@ -44,22 +60,33 @@ fun reduce(state: ClientGameState, envelope: Envelope): ClientGameState {
             state.copy(gameOver = data, phase = GamePhase.Ended)
         }
         "error" -> {
-            val msg = try {
-                val err = json.decodeFromJsonElement<ErrorData>(envelope.data)
-                when (err.code) {
-                    "INVALID_DIRECTION" -> "Wall! Can't move that way."
-                    "NOTHING_TO_PICKUP" -> "Nothing to pick up here."
-                    "NO_BULLET"         -> "No bullet in inventory."
-                    "MAP_INCOMPLETE"    -> "Map incomplete — ${err.message}"
-                    else                -> err.message
-                }
-            } catch (_: Exception) {
-                envelope.data.toString()
-            }
-            state.copy(errorMessage = msg)
+            // Server action rejection — transient, the UI auto-dismisses it.
+            val obj = envelope.data as? JsonObject
+            val msg = obj?.get("message")?.jsonPrimitive?.contentOrNull
+                ?: obj?.get("code")?.jsonPrimitive?.contentOrNull
+                ?: envelope.data.toString()
+            state.copy(transientError = msg)
         }
         "pong" -> state
         "server_shutdown" -> state.copy(connState = ConnState.Reconnecting)
         else -> state
     }
+}
+
+/**
+ * Appends [events] to the accumulating log, formatting each into a narrative
+ * sentence. Returns the new log and the next sequence id.
+ */
+private fun appendEvents(
+    log: List<GameLogEntry>,
+    startSeq: Long,
+    events: List<Event>?,
+    ts: Long
+): Pair<List<GameLogEntry>, Long> {
+    if (events.isNullOrEmpty()) return log to startSeq
+    var seq = startSeq
+    val additions = events.map { e ->
+        GameLogEntry(seq = seq++, text = describeEvent(e), ts = ts)
+    }
+    return (log + additions) to seq
 }

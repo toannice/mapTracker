@@ -1,6 +1,10 @@
 package protocol
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/your-org/blindmap/internal/game"
+)
 
 type Envelope struct {
 	Type string          `json:"type"`
@@ -19,20 +23,21 @@ type ActionKind string
 
 const (
 	ActionMove      ActionKind = "move"
-	ActionPickup    ActionKind = "pickup"
 	ActionShoot     ActionKind = "shoot"
 	ActionSubmitMap ActionKind = "submit_map"
 )
 
 type ActionData struct {
-	Kind      ActionKind `json:"kind"`
-	Direction string     `json:"direction,omitempty"`
-	ItemID    string     `json:"itemId,omitempty"`
+	Kind      ActionKind      `json:"kind"`
+	Direction string          `json:"direction,omitempty"`
+	ItemID    string          `json:"itemId,omitempty"`
+	Walls     []game.Position `json:"walls,omitempty"`
 }
 
 type EventKind string
 
 const (
+	EventPlayerMoved      EventKind = "player_moved"
 	EventTrapTriggered    EventKind = "trap_triggered"
 	EventRewardActivated  EventKind = "reward_activated"
 	EventPlayerEliminated EventKind = "player_eliminated"
