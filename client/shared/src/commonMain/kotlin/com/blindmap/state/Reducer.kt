@@ -1,5 +1,7 @@
 package com.blindmap.state
 
+import com.blindmap.protocol.ChatHistoryData
+import com.blindmap.protocol.ChatMsgData
 import com.blindmap.protocol.Envelope
 import com.blindmap.protocol.Event
 import com.blindmap.protocol.GameOverData
@@ -66,6 +68,16 @@ fun reduce(state: ClientGameState, envelope: Envelope): ClientGameState {
                 ?: obj?.get("code")?.jsonPrimitive?.contentOrNull
                 ?: envelope.data.toString()
             state.copy(transientError = msg)
+        }
+        "chat_msg" -> {
+            val msg = json.decodeFromJsonElement<ChatMsgData>(envelope.data)
+            val entry = ChatMessage(msg.senderName, msg.ts, msg.text)
+            state.copy(chatMessages = (state.chatMessages + entry).takeLast(50))
+        }
+        "chat_history" -> {
+            val data = json.decodeFromJsonElement<ChatHistoryData>(envelope.data)
+            val msgs = data.messages.map { ChatMessage(it.senderName, it.ts, it.text) }
+            state.copy(chatMessages = msgs)
         }
         "pong" -> state
         "server_shutdown" -> state.copy(connState = ConnState.Reconnecting)

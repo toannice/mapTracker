@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	mrand "math/rand/v2"
+	"strings"
 	"time"
 
 	"github.com/your-org/blindmap/internal/config"
@@ -15,14 +16,15 @@ import (
 )
 
 type Room struct {
-	state    *game.GameState
-	conns    map[game.PlayerID]*conn.Conn
-	hostID   game.PlayerID
-	inCh     chan conn.IncomingMsg
-	cfg      *config.Config
-	onDelete func(game.RoomID)
-	ticker   *time.Ticker
-	rng      *mrand.Rand
+	state       *game.GameState
+	conns       map[game.PlayerID]*conn.Conn
+	hostID      game.PlayerID
+	inCh        chan conn.IncomingMsg
+	cfg         *config.Config
+	onDelete    func(game.RoomID)
+	ticker      *time.Ticker
+	rng         *mrand.Rand
+	chatHistory []protocol.ChatMsgData
 }
 
 func NewRoom(id game.RoomID, cfg *config.Config, onDelete func(game.RoomID)) *Room {
@@ -67,6 +69,8 @@ func (r *Room) handleMessage(ctx context.Context, msg conn.IncomingMsg) {
 		r.handleJoin(ctx, msg)
 	case "action":
 		r.handleAction(ctx, msg)
+	case "chat":
+		r.handleChat(msg)
 	case "ping":
 		r.handlePing(msg)
 	case "leave":
@@ -132,7 +136,13 @@ func (r *Room) handleAction(ctx context.Context, msg conn.IncomingMsg) {
 
 	// start_game is a lobby-phase action from the host
 	if string(data.Kind) == "start_game" {
-		if msg.PlayerID == r.hostID && r.state.Phase == game.PhaseLobby && len(r.state.Players) >= 2 {
+		if msg.PlayerID == r.hostID && r.state.Phase == game.PhaseLobby && len(r.state.Players) >= 1 {
+			if data.MapSize >= 4 && data.MapSize <= 20 {
+				r.state.MapSize = data.MapSize
+			}
+			if data.TurnSeconds >= 10 && data.TurnSeconds <= 120 {
+				r.state.TurnSeconds = data.TurnSeconds
+			}
 			r.startGame()
 		}
 		return
@@ -189,6 +199,33 @@ func (r *Room) handleAction(ctx context.Context, msg conn.IncomingMsg) {
 
 	r.advanceTurnIndex()
 	r.broadcastTurnResult(events)
+}
+
+func (r *Room) handleChat(msg conn.IncomingMsg) {
+	var data protocol.ChatData
+	if err := json.Unmarshal(msg.Envelope.Data, &data); err != nil {
+		return
+	}
+	text := strings.TrimSpace(data.Text)
+	if text == "" || len([]rune(text)) > 200 {
+		return
+	}
+	p, ok := r.state.Players[msg.PlayerID]
+	if !ok {
+		return
+	}
+	chatMsg := protocol.ChatMsgData{
+		SenderName: p.Name,
+		Ts:         time.Now().UnixMilli(),
+		Text:       text,
+	}
+	r.chatHistory = append(r.chatHistory, chatMsg)
+	if len(r.chatHistory) > 50 {
+		r.chatHistory = r.chatHistory[len(r.chatHistory)-50:]
+	}
+	for _, c := range r.conns {
+		r.sendEnvelope(c, "chat_msg", chatMsg)
+	}
 }
 
 func (r *Room) handlePing(msg conn.IncomingMsg) {
@@ -256,7 +293,9 @@ func (r *Room) startGame() {
 	seed := cryptoRandSeed()
 	r.rng = mrand.New(mrand.NewPCG(seed, seed>>32))
 
-	r.state.Grid = game.GenerateMap(r.state.MapSize, r.rng)
+	wallPct := randomWallPct(r.rng)
+	r.state.Grid = game.GenerateMap(r.state.MapSize, r.rng, wallPct)
+	slog.Info("map generated", "roomId", r.state.RoomID, "wallPct", int(wallPct*100))
 	r.state.Phase = game.PhaseActive
 	r.state.Turn = 1
 	r.state.TurnDeadline = time.Now().Add(time.Duration(r.state.TurnSeconds) * time.Second)
@@ -370,6 +409,11 @@ func (r *Room) sendWelcome(playerID game.PlayerID) {
 	welcome := protocol.WelcomeData{PlayerID: string(playerID), RoomState: lobby}
 	r.sendEnvelope(c, "welcome", welcome)
 
+	// Send existing chat history so the new client sees past messages.
+	if len(r.chatHistory) > 0 {
+		r.sendEnvelope(c, "chat_history", protocol.ChatHistoryData{Messages: r.chatHistory})
+	}
+
 	// On reconnect during active game, send current state
 	if r.state.Phase == game.PhaseActive {
 		view := protocol.BuildPlayerView(r.state, playerID, nil)
@@ -439,4 +483,12 @@ func errCode(err error) string {
 		return ce.Code()
 	}
 	return "ERROR"
+}
+
+// randomWallPct picks wall density biased toward 15–25%, occasionally 5–45%.
+func randomWallPct(rng *mrand.Rand) float64 {
+	if rng.Float64() < 0.80 {
+		return 0.15 + rng.Float64()*0.10 // common: 15–25%
+	}
+	return 0.05 + rng.Float64()*0.40 // rare: 5–45%
 }

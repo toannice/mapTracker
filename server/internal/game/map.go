@@ -2,18 +2,18 @@ package game
 
 import "math/rand/v2"
 
-// GenerateMap builds a map with ~25% interior walls. It regenerates until the
-// non-wall cells form a single connected region (no player can be trapped).
-func GenerateMap(mapSize int, rng *rand.Rand) [][]Cell {
+// GenerateMap builds a map with wallPct interior walls (0.05–0.45).
+// It regenerates until the non-wall cells form a single connected region.
+func GenerateMap(mapSize int, rng *rand.Rand, wallPct float64) [][]Cell {
 	for {
-		grid := buildGrid(mapSize, rng)
+		grid := buildGrid(mapSize, rng, wallPct)
 		if isFullyConnected(grid, mapSize) {
 			return grid
 		}
 	}
 }
 
-func buildGrid(mapSize int, rng *rand.Rand) [][]Cell {
+func buildGrid(mapSize int, rng *rand.Rand, wallPct float64) [][]Cell {
 	grid := make([][]Cell, mapSize)
 	for y := 0; y < mapSize; y++ {
 		grid[y] = make([]Cell, mapSize)
@@ -23,9 +23,10 @@ func buildGrid(mapSize int, rng *rand.Rand) [][]Cell {
 	}
 
 	total := mapSize * mapSize
+	wallCount := int(float64(total) * wallPct)
 	// Walls first — placeRandom only overwrites CellEmpty, so every other
 	// special cell placed afterwards naturally avoids walls.
-	placeRandom(grid, mapSize, rng, CellWall, total/4, 0)
+	placeRandom(grid, mapSize, rng, CellWall, wallCount, 0)
 	placeRandom(grid, mapSize, rng, CellBullet, total/10, 0)
 	placeRandom(grid, mapSize, rng, CellReward, total/20, 0)
 	placeRandom(grid, mapSize, rng, CellTrap, total/33, 0)
