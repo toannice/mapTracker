@@ -25,6 +25,7 @@ type Room struct {
 	ticker      *time.Ticker
 	rng         *mrand.Rand
 	chatHistory []protocol.ChatMsgData
+	joinOrder   []game.PlayerID // tracks join order for debug-map position assignment
 }
 
 func NewRoom(id game.RoomID, cfg *config.Config, onDelete func(game.RoomID)) *Room {
@@ -119,6 +120,7 @@ func (r *Room) handleJoin(ctx context.Context, msg conn.IncomingMsg) {
 		LastSeen:     time.Now(),
 	}
 	r.state.Players[msg.PlayerID] = p
+	r.joinOrder = append(r.joinOrder, msg.PlayerID)
 	if len(r.state.Players) == 1 {
 		r.hostID = msg.PlayerID
 	}
@@ -143,7 +145,7 @@ func (r *Room) handleAction(ctx context.Context, msg conn.IncomingMsg) {
 			if data.TurnSeconds >= 10 && data.TurnSeconds <= 120 {
 				r.state.TurnSeconds = data.TurnSeconds
 			}
-			r.startGame()
+			r.startGame(data.DebugMap)
 		}
 		return
 	}
@@ -310,25 +312,74 @@ func (r *Room) RemoveConn(playerID game.PlayerID) {
 	}
 }
 
-func (r *Room) startGame() {
+func (r *Room) startGame(debugMap bool) {
 	seed := cryptoRandSeed()
 	r.rng = mrand.New(mrand.NewPCG(seed, seed>>32))
 
-	wallPct := randomWallPct(r.rng)
-	r.state.Grid = game.GenerateMap(r.state.MapSize, r.rng, wallPct, len(r.state.Players))
-	slog.Info("map generated", "roomId", r.state.RoomID, "wallPct", int(wallPct*100))
+	if debugMap {
+		r.state.MapSize = game.DebugMapSize
+		r.state.Grid = game.BuildDebugMap()
+		slog.Info("debug map loaded", "roomId", r.state.RoomID, "size", game.DebugMapSize)
+	} else {
+		wallPct := randomWallPct(r.rng)
+		r.state.Grid = game.GenerateMap(r.state.MapSize, r.rng, wallPct, len(r.state.Players))
+		slog.Info("map generated", "roomId", r.state.RoomID, "wallPct", int(wallPct*100))
+	}
+
 	r.state.Phase = game.PhaseActive
 	r.state.Turn = 1
 	r.state.TurnDeadline = time.Now().Add(time.Duration(r.state.TurnSeconds) * time.Second)
 
-	occupied := make(map[game.Position]bool)
-	for id, p := range r.state.Players {
-		r.state.TurnOrder = append(r.state.TurnOrder, id)
-		pos := randomFreePos(r.state.Grid, r.state.MapSize, r.rng, occupied)
-		occupied[pos] = true
-		p.Pos = pos
-		p.StartPos = pos
-		p.VisitedCells[pos] = true
+	if debugMap {
+		// Assign positions and turn order by name so tests are deterministic
+		// regardless of goroutine scheduling / join order races.
+		nameToID := make(map[string]game.PlayerID, len(r.state.Players))
+		for id, p := range r.state.Players {
+			nameToID[p.Name] = id
+		}
+		debugOrder := []string{"Alice", "Bot1", "Bot2"}
+		for _, name := range debugOrder {
+			id, ok := nameToID[name]
+			if !ok {
+				continue
+			}
+			p := r.state.Players[id]
+			r.state.TurnOrder = append(r.state.TurnOrder, id)
+			pos := game.DebugPositionByName(name)
+			p.Pos = pos
+			p.StartPos = pos
+			p.VisitedCells[pos] = true
+		}
+		// Any extra players not in debugOrder get a random position at the end.
+		for _, id := range r.joinOrder {
+			p := r.state.Players[id]
+			already := false
+			for _, tid := range r.state.TurnOrder {
+				if tid == id {
+					already = true
+					break
+				}
+			}
+			if already {
+				continue
+			}
+			r.state.TurnOrder = append(r.state.TurnOrder, id)
+			occupied := make(map[game.Position]bool)
+			pos := randomFreePos(r.state.Grid, r.state.MapSize, r.rng, occupied)
+			p.Pos = pos
+			p.StartPos = pos
+			p.VisitedCells[pos] = true
+		}
+	} else {
+		occupied := make(map[game.Position]bool)
+		for id, p := range r.state.Players {
+			r.state.TurnOrder = append(r.state.TurnOrder, id)
+			pos := randomFreePos(r.state.Grid, r.state.MapSize, r.rng, occupied)
+			occupied[pos] = true
+			p.Pos = pos
+			p.StartPos = pos
+			p.VisitedCells[pos] = true
+		}
 	}
 
 	slog.Info("game started", "roomId", r.state.RoomID, "playerCount", len(r.state.Players))
