@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeContentPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.animation.core.LinearEasing
@@ -19,6 +20,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -35,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import com.blindmap.state.ConnState
 import com.blindmap.state.GamePhase
 import com.blindmap.viewmodel.GameViewModel
+import androidx.compose.foundation.layout.imePadding
 import kotlinx.coroutines.delay
 
 @Composable
@@ -42,13 +45,15 @@ fun LobbyScreen(vm: GameViewModel, serverUrl: String, onNavigateToGame: () -> Un
     val state by vm.uiState.collectAsState()
     var playerName by remember { mutableStateOf("") }
     var roomCode by remember { mutableStateOf("") }
+    var mapSize by remember { mutableIntStateOf(10) }
+    var turnSeconds by remember { mutableIntStateOf(30) }
 
     LaunchedEffect(state.phase) {
         if (state.phase == GamePhase.Active) onNavigateToGame()
     }
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
+        modifier = Modifier.fillMaxSize().safeContentPadding().imePadding().padding(horizontal = 24.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -95,7 +100,7 @@ fun LobbyScreen(vm: GameViewModel, serverUrl: String, onNavigateToGame: () -> Un
         if (players.isNotEmpty()) {
             Text("Players (${players.size}/8)", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
-            LazyColumn {
+            LazyColumn(modifier = Modifier.fillMaxWidth()) {
                 items(players) { name ->
                     Text("• $name", modifier = Modifier.padding(vertical = 2.dp))
                 }
@@ -103,16 +108,36 @@ fun LobbyScreen(vm: GameViewModel, serverUrl: String, onNavigateToGame: () -> Un
             Spacer(Modifier.height(16.dp))
 
             val isHost = state.lobby?.isHost == true
-            if (isHost && players.size >= 2) {
-                Button(
-                    onClick = { vm.sendStartGame() },
+            if (isHost) {
+                // Map settings
+                Text("Map size: ${mapSize}×$mapSize", style = MaterialTheme.typography.bodySmall)
+                Slider(
+                    value = mapSize.toFloat(),
+                    onValueChange = { mapSize = it.toInt() },
+                    valueRange = 4f..20f,
+                    steps = 15,
                     modifier = Modifier.fillMaxWidth()
-                ) { Text("Start Game") }
-            } else if (isHost) {
-                Text("Waiting for more players...", style = MaterialTheme.typography.bodySmall)
+                )
+                Spacer(Modifier.height(4.dp))
+                Text("Turn time: ${turnSeconds}s", style = MaterialTheme.typography.bodySmall)
+                Slider(
+                    value = turnSeconds.toFloat(),
+                    onValueChange = { turnSeconds = it.toInt() },
+                    valueRange = 10f..120f,
+                    steps = 109,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(12.dp))
+                Button(
+                    onClick = { vm.sendStartGame(mapSize, turnSeconds) },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text(if (players.size == 1) "Start Solo" else "Start Game") }
             } else {
                 Text("Waiting for host to start...", style = MaterialTheme.typography.bodySmall)
             }
+
+            Spacer(Modifier.height(12.dp))
+            ChatPanel(messages = state.chatMessages, onSend = { vm.sendChat(it) })
         }
 
         if (state.connState == ConnState.Connecting || state.connState == ConnState.Reconnecting) {

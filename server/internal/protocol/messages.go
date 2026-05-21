@@ -28,10 +28,12 @@ const (
 )
 
 type ActionData struct {
-	Kind      ActionKind      `json:"kind"`
-	Direction string          `json:"direction,omitempty"`
-	ItemID    string          `json:"itemId,omitempty"`
-	Walls     []game.Position `json:"walls,omitempty"`
+	Kind        ActionKind      `json:"kind"`
+	Direction   string          `json:"direction,omitempty"`
+	ItemID      string          `json:"itemId,omitempty"`
+	Walls       []game.Position `json:"walls,omitempty"`
+	MapSize     int             `json:"mapSize,omitempty"`
+	TurnSeconds int             `json:"turnSeconds,omitempty"`
 }
 
 type EventKind string
@@ -76,4 +78,21 @@ type ErrorData struct {
 
 type ServerShutdownData struct {
 	ReconnectAfterMs int `json:"reconnectAfterMs"`
+}
+
+// ChatData is sent client→server when a player sends a chat message.
+type ChatData struct {
+	Text string `json:"text"`
+}
+
+// ChatMsgData is broadcast server→all clients in the room.
+type ChatMsgData struct {
+	SenderName string `json:"senderName"`
+	Ts         int64  `json:"ts"`
+	Text       string `json:"text"`
+}
+
+// ChatHistoryData is sent to a newly joined client with the room's recent history.
+type ChatHistoryData struct {
+	Messages []ChatMsgData `json:"messages"`
 }

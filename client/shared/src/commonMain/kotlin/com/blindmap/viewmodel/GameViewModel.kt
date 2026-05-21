@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.blindmap.net.ReconnectManager
 import com.blindmap.net.WebSocketClient
 import com.blindmap.protocol.ActionData
+import com.blindmap.protocol.ChatData
 import com.blindmap.protocol.Envelope
 import com.blindmap.protocol.JoinData
 import com.blindmap.protocol.Position
@@ -105,8 +106,8 @@ class GameViewModel : ViewModel() {
         }
     }
 
-    fun sendStartGame() {
-        sendAction(ActionData(kind = "start_game"))
+    fun sendStartGame(mapSize: Int = 20, turnSeconds: Int = 30) {
+        sendAction(ActionData(kind = "start_game", mapSize = mapSize, turnSeconds = turnSeconds))
     }
 
     fun sendMove(direction: String) {
@@ -120,6 +121,19 @@ class GameViewModel : ViewModel() {
     /** Submits a reconstructed wall layout. Does not consume a turn. */
     fun sendSubmitMap(walls: List<Position>) {
         sendAction(ActionData(kind = "submit_map", walls = walls))
+    }
+
+    fun sendChat(text: String) {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty() || trimmed.length > 200) return
+        viewModelScope.launch {
+            val envelope = Envelope(
+                type = "chat",
+                ts = Clock.System.now().toEpochMilliseconds(),
+                data = json.encodeToJsonElement(ChatData(text = trimmed))
+            )
+            wsClient.send(envelope)
+        }
     }
 
     /** Clears the transient error banner once the UI has shown it. */

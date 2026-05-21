@@ -19,6 +19,12 @@ data class GameLogEntry(
     val ts: Long
 )
 
+data class ChatMessage(
+    val senderName: String,
+    val ts: Long,
+    val text: String
+)
+
 data class ClientGameState(
     val roomId: String = "",
     val playerId: String = "",
@@ -35,5 +41,7 @@ data class ClientGameState(
     // auto-dismisses these after a few seconds.
     val transientError: String? = null,
     // Network/reconnect failures — the UI shows these as a persistent banner.
-    val connectionError: String? = null
+    val connectionError: String? = null,
+    // Chat messages for the current room, newest at the end (max 50).
+    val chatMessages: List<ChatMessage> = emptyList()
 )

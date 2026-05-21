@@ -7,11 +7,20 @@ param(
 )
 
 if (!$Name) { $Name = Read-Host "Your name" }
+$MapSize    = 10
+$TurnSecs   = 30
+$IsCreating = $false
 if (!$Room) {
     $c = Read-Host "C=Create room   J=Join room"
     if ($c -ieq 'C') {
+        $IsCreating = $true
         $Room = -join ((65..90 + 48..57) | Get-Random -Count 6 | ForEach-Object { [char]$_ })
-        Write-Host "Room code: $Room  (share this with the other player)" -ForegroundColor Cyan
+        Write-Host "Room code: $Room  (share this with others, or start solo)" -ForegroundColor Cyan
+        $ms = Read-Host "Map size (4-20, Enter=10)"
+        if ($ms -match '^\d+$' -and [int]$ms -ge 4 -and [int]$ms -le 20) { $MapSize = [int]$ms }
+        $ts = Read-Host "Turn time in seconds (10-120, Enter=30)"
+        if ($ts -match '^\d+$' -and [int]$ts -ge 10 -and [int]$ts -le 120) { $TurnSecs = [int]$ts }
+        Write-Host "Settings: ${MapSize}x${MapSize} map, ${TurnSecs}s turns  (wall density randomised each game)" -ForegroundColor DarkCyan
     } else {
         $Room = (Read-Host "Room code").ToUpper()
     }
@@ -34,7 +43,7 @@ Write-Host "Connecting" -NoNewline -ForegroundColor DarkGray
 while (-not $connected -and $waited -lt $maxWait) {
     $ws = [System.Net.WebSockets.ClientWebSocket]::new()
     try {
-        $ws.ConnectAsync([Uri]$wsUrl, $ct).GetAwaiter().GetResult()
+        [void]$ws.ConnectAsync([Uri]$wsUrl, $ct).GetAwaiter().GetResult()
         $connected = $true
     } catch {
         $attempt++
@@ -56,15 +65,25 @@ Write-Host "Connected." -ForegroundColor Green
 
 function Send-Json([string]$json) {
     $b = $enc.GetBytes($json)
-    $ws.SendAsync([ArraySegment[byte]]$b, 'Text', $true, $ct).GetAwaiter().GetResult()
+    try {
+        [void]$ws.SendAsync([ArraySegment[byte]]$b, 'Text', $true, $ct).GetAwaiter().GetResult()
+    } catch {
+        Write-Host "Send error: $_" -ForegroundColor Red
+    }
 }
 function Now { [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() }
 function Action([string]$dataJson) {
     '{"type":"action","ts":' + (Now) + ',"data":' + $dataJson + '}'
 }
+function ChatEnvelope([string]$text) {
+    '{"type":"chat","ts":' + (Now) + ',"data":{"text":' + ($text | ConvertTo-Json) + '}}'
+}
+function Format-ChatTs([long]$ms) {
+    [DateTimeOffset]::FromUnixTimeMilliseconds($ms).LocalDateTime.ToString("HH:mm")
+}
 
 # Background receive loop
-$shared = [hashtable]::Synchronized(@{ ws = $ws; running = $true; myId = ''; playerName = $Name })
+$shared = [hashtable]::Synchronized(@{ ws = $ws; running = $true; myId = ''; playerName = $Name; mapSize = $MapSize; turnSecs = $TurnSecs })
 $rs = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
 $rs.Open()
 $rs.SessionStateProxy.SetVariable('shared', $shared)
@@ -131,7 +150,7 @@ $ps.Runspace = $rs
         $turnStatus = if ($isMyTurn) { 'YOUR TURN' } else { "$turnName's turn" }
         [Console]::WriteLine("  Turn $($data.turn)  |  $turnStatus  |  $($secsLeft)s left")
         [Console]::WriteLine($sep)
-        [Console]::WriteLine("  Pos: ($($self.pos.x),$($self.pos.y))   Explored: $($self.visitedCount)/$($self.totalCells)")
+        [Console]::WriteLine("  Explored: $($self.visitedCount)/$($self.totalCells)")
         [Console]::WriteLine("  Items: $inv")
         [Console]::WriteLine("  Others: $others")
 
@@ -144,7 +163,7 @@ $ps.Runspace = $rs
 
         [Console]::WriteLine($sep)
         if ($isMyTurn) {
-            [Console]::WriteLine('  [W/A/S/D] Move   [P] Pick up   [M] Submit map   [F] Shoot   [Q] Quit')
+            [Console]::WriteLine('  [W/A/S/D] Move   [M] Submit map   [F] Shoot   [Q] Quit')
         }
     }
 
@@ -198,6 +217,20 @@ $ps.Runspace = $rs
                                 [Console]::WriteLine('=== GAME OVER — No winner ===')
                             }
                         }
+                        'chat_msg' {
+                            $t = [DateTimeOffset]::FromUnixTimeMilliseconds($msg.data.ts).LocalDateTime.ToString("HH:mm")
+                            [Console]::WriteLine("[$t] $($msg.data.senderName): $($msg.data.text)")
+                        }
+                        'chat_history' {
+                            if ($msg.data.messages.Count -gt 0) {
+                                [Console]::WriteLine("── chat history ──")
+                                foreach ($m in $msg.data.messages) {
+                                    $t = [DateTimeOffset]::FromUnixTimeMilliseconds($m.ts).LocalDateTime.ToString("HH:mm")
+                                    [Console]::WriteLine("[$t] $($m.senderName): $($m.text)")
+                                }
+                                [Console]::WriteLine("──────────────────")
+                            }
+                        }
                         'server_shutdown' { [Console]::WriteLine('Server is restarting...') }
                         'pong'            { }
                         default           { [Console]::WriteLine("[$($msg.type)] $raw") }
@@ -213,10 +246,11 @@ $handle = $ps.BeginInvoke()
 
 Write-Host ""
 Write-Host "Controls:" -ForegroundColor Yellow
-Write-Host "  W/A/S/D or Arrow keys = Move"
+Write-Host "  W/A/S/D or Arrow keys = Move  (bullets auto-picked up on move)"
 Write-Host "  G                     = Start game (host only)"
 Write-Host "  M                     = Submit map (win condition)"
 Write-Host "  F then W/A/S/D        = Shoot in direction"
+Write-Host "  T                     = Type a chat message"
 Write-Host "  Q                     = Quit"
 Write-Host ""
 
@@ -234,6 +268,7 @@ while ($shared.ws.State -eq 'Open') {
             default { $null }
         }
         if ($dir) {
+            Write-Host "(shoot $dir)" -ForegroundColor DarkGray
             Send-Json (Action "{`"kind`":`"shoot`",`"direction`":`"$dir`"}")
         } else {
             Write-Host "(shoot cancelled)" -ForegroundColor DarkGray
@@ -241,26 +276,34 @@ while ($shared.ws.State -eq 'Open') {
         continue
     }
 
-    $json = switch ($k.Key) {
-        'W'         { Action '{"kind":"move","direction":"N"}' }
-        'UpArrow'   { Action '{"kind":"move","direction":"N"}' }
-        'S'         { Action '{"kind":"move","direction":"S"}' }
-        'DownArrow' { Action '{"kind":"move","direction":"S"}' }
-        'A'         { Action '{"kind":"move","direction":"W"}' }
-        'LeftArrow' { Action '{"kind":"move","direction":"W"}' }
-        'D'         { Action '{"kind":"move","direction":"E"}' }
-        'RightArrow'{ Action '{"kind":"move","direction":"E"}' }
-        'G'         { Action '{"kind":"start_game"}' }
-        'M'         { Action '{"kind":"submit_map"}' }
-        'F'         { $shootPending = $true
-                      Write-Host "Shoot direction: W/A/S/D" -ForegroundColor DarkCyan
-                      $null }
-        'Q'         { $shared.running = $false
-                      $ws.CloseOutputAsync('NormalClosure','bye',$ct).GetAwaiter().GetResult()
-                      break }
-        default     { $null }
+    $json  = $null
+    $label = $null
+    switch ($k.Key) {
+        'W'          { $json = Action '{"kind":"move","direction":"N"}'; $label = '(move N)' }
+        'UpArrow'    { $json = Action '{"kind":"move","direction":"N"}'; $label = '(move N)' }
+        'S'          { $json = Action '{"kind":"move","direction":"S"}'; $label = '(move S)' }
+        'DownArrow'  { $json = Action '{"kind":"move","direction":"S"}'; $label = '(move S)' }
+        'A'          { $json = Action '{"kind":"move","direction":"W"}'; $label = '(move W)' }
+        'LeftArrow'  { $json = Action '{"kind":"move","direction":"W"}'; $label = '(move W)' }
+        'D'          { $json = Action '{"kind":"move","direction":"E"}'; $label = '(move E)' }
+        'RightArrow' { $json = Action '{"kind":"move","direction":"E"}'; $label = '(move E)' }
+        'G'          { $json = Action "{`"kind`":`"start_game`",`"mapSize`":$($shared.mapSize),`"turnSeconds`":$($shared.turnSecs)}"; $label = '(starting game…)' }
+        'M'          { $json = Action '{"kind":"submit_map"}'; $label = '(submitting map…)' }
+        'F'          { $shootPending = $true
+                       Write-Host "Shoot direction: W/A/S/D" -ForegroundColor DarkCyan }
+        'T'          {
+                       $chatText = Read-Host "Chat"
+                       if ($chatText.Trim()) {
+                           $json = ChatEnvelope $chatText.Trim()
+                           $label = $null  # no extra label, the broadcast echo is enough
+                       }
+                     }
+        'Q'          { $shared.running = $false
+                       [void]$ws.CloseOutputAsync('NormalClosure','bye',$ct).GetAwaiter().GetResult()
+                       break }
     }
-    if ($json) { Send-Json $json }
+    if ($label) { Write-Host $label -ForegroundColor DarkGray }
+    if ($json)  { Send-Json $json }
 }
 
 $ps.EndInvoke($handle) | Out-Null
