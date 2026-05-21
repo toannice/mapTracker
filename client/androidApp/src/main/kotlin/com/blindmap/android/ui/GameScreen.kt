@@ -12,7 +12,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeContentPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -24,6 +26,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -40,6 +43,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import com.blindmap.protocol.Position
+import com.blindmap.state.ChatMessage
 import com.blindmap.state.ConnState
 import com.blindmap.state.GamePhase
 import com.blindmap.viewmodel.GameViewModel
@@ -105,8 +109,8 @@ fun GameScreen(vm: GameViewModel, onNavigateToGameOver: () -> Unit) {
         )
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+    Box(modifier = Modifier.fillMaxSize().safeContentPadding().imePadding()) {
+        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp)) {
             if (state.connState == ConnState.Reconnecting) {
                 Banner("Reconnecting…", MaterialTheme.colorScheme.errorContainer)
             } else if (state.connectionError != null) {
@@ -191,6 +195,9 @@ fun GameScreen(vm: GameViewModel, onNavigateToGameOver: () -> Unit) {
                     OutlinedButton(onClick = { showMapDialog = true }, modifier = Modifier.weight(1f)) { Text("Map") }
                     OutlinedButton(onClick = { showInfoDialog = true }, modifier = Modifier.weight(1f)) { Text("Info") }
                 }
+
+                Spacer(Modifier.height(8.dp))
+                ChatPanel(messages = state.chatMessages, onSend = { vm.sendChat(it) })
             }
         }
 
@@ -300,6 +307,63 @@ private fun MapReconstructionDialog(
             ) { Text("Submit") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+@Composable
+internal fun ChatPanel(messages: List<ChatMessage>, onSend: (String) -> Unit) {
+    var input by remember { mutableStateOf("") }
+    val listState = rememberLazyListState()
+    LaunchedEffect(messages.size) {
+        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
+    }
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text("Chat", style = MaterialTheme.typography.labelMedium)
+        Card(modifier = Modifier.fillMaxWidth().height(84.dp)) {
+            if (messages.isEmpty()) {
+                Text(
+                    "Chưa có tin nhắn",
+                    modifier = Modifier.padding(8.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                )
+            } else {
+                LazyColumn(state = listState, modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)) {
+                    items(messages) { msg ->
+                        Text(
+                            "[${formatChatTs(msg.ts)}] ${msg.senderName}: ${msg.text}",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(vertical = 1.dp)
+                        )
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = input,
+                onValueChange = { if (it.length <= 200) input = it },
+                placeholder = { Text("Nhắn tin…") },
+                modifier = Modifier.weight(1f),
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodySmall
+            )
+            Button(
+                onClick = { if (input.isNotBlank()) { onSend(input.trim()); input = "" } },
+                enabled = input.isNotBlank()
+            ) { Text("Gửi") }
+        }
+    }
+}
+
+internal fun formatChatTs(ts: Long): String {
+    val cal = java.util.Calendar.getInstance()
+    cal.timeInMillis = ts
+    return "%02d:%02d".format(
+        cal.get(java.util.Calendar.HOUR_OF_DAY),
+        cal.get(java.util.Calendar.MINUTE)
     )
 }
 
