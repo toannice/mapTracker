@@ -83,7 +83,17 @@ function Format-ChatTs([long]$ms) {
 }
 
 # Background receive loop
-$shared = [hashtable]::Synchronized(@{ ws = $ws; running = $true; myId = ''; playerName = $Name; mapSize = $MapSize; turnSecs = $TurnSecs })
+$shared = [hashtable]::Synchronized(@{
+    ws         = $ws
+    running    = $true
+    myId       = ''
+    playerName = $Name
+    mapSize    = $MapSize
+    turnSecs   = $TurnSecs
+    actionLog  = [System.Collections.Generic.List[string]]::new()
+    mapWalls   = [System.Collections.Generic.HashSet[string]]::new()
+    gameMapSize = $MapSize
+})
 $rs = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
 $rs.Open()
 $rs.SessionStateProxy.SetVariable('shared', $shared)
@@ -92,33 +102,70 @@ $ps = [powershell]::Create()
 $ps.Runspace = $rs
 [void]$ps.AddScript({
     function Format-Event($ev) {
+        $p = $ev.payload
         switch ($ev.kind) {
-            'trap_triggered'    { return 'You triggered a trap!' }
-            'reward_activated'  { return 'You found a reward!' }
-            'player_eliminated' {
-                if ($ev.payload -ne $null -and $ev.payload.playerName -ne $null -and $ev.payload.byPlayerName -ne $null) {
-                    return "$($ev.payload.playerName) was eliminated by $($ev.payload.byPlayerName)"
-                } elseif ($ev.payload -ne $null -and $ev.payload.playerName -ne $null) {
-                    return "$($ev.payload.playerName) was eliminated!"
+            'player_moved' {
+                $name = if ($p -and $p.playerName) { $p.playerName } else { '?' }
+                $dirn = if ($p -and $p.direction)  { $p.direction  } else { '?' }
+                if (-not $p.success) { return "$name - moved $dirn - wall" }
+                $bt = if ($p.blockType) { $p.blockType } else { 'blank' }
+                $detail = switch ($bt) {
+                    'blank'  { 'empty' }
+                    'bullet' { if ($p.bulletFull) { 'bullet full' } else { 'picked up bullet' } }
+                    'reward' { 'reward' }
+                    'trap'   { 'trap' }
+                    'portal' { 'portal' }
+                    default  { $bt }
                 }
-                return 'A player was eliminated!'
+                return "$name - moved $dirn - ok - $detail"
+            }
+            'trap_triggered' {
+                $eff = if ($p -and $p.effect) { $p.effect } else { '' }
+                switch ($eff) {
+                    'reveal_position' {
+                        $x = if ($p.pos) { $p.pos.x } else { '?' }
+                        $y = if ($p.pos) { $p.pos.y } else { '?' }
+                        return "trap - position revealed ($x,$y)"
+                    }
+                    'random_teleport' { return 'trap - random teleport' }
+                    'lose_next_turn'  { return 'trap - lose next turn' }
+                    'lose_bullet'     { return 'trap - lost bullet' }
+                    'info_blackout'   { return 'trap - info blackout' }
+                    default           { return "trap - $eff" }
+                }
+            }
+            'reward_activated' {
+                $eff = if ($p -and $p.effect) { $p.effect } else { '' }
+                switch ($eff) {
+                    'nearest_direction'      { return "reward - nearest player is $($p.direction)" }
+                    'all_positions_revealed' { return 'reward - all positions revealed' }
+                    'all_bullet_locations'   { return 'reward - all bullet tiles revealed' }
+                    default                  { return "reward - $eff" }
+                }
+            }
+            'player_eliminated' {
+                $victim = if ($p -and $p.playerName)   { $p.playerName }   else { '?' }
+                $by     = if ($p -and $p.byPlayerName) { $p.byPlayerName } else { $null }
+                if ($by) { return "$by shot $victim - eliminated" }
+                return "$victim - eliminated"
             }
             'shot_fired' {
-                if ($ev.payload -ne $null -and $ev.payload.direction -ne $null) {
-                    return "Shot fired $($ev.payload.direction)!"
-                }
-                return 'Shot fired!'
+                $by   = if ($p -and $p.byPlayerName) { $p.byPlayerName } else { '?' }
+                $dirn = if ($p -and $p.direction)    { $p.direction }    else { '' }
+                return "$by - fired $dirn"
             }
             'map_submitted' {
-                if ($ev.payload -ne $null -and $ev.payload.playerName -ne $null) {
-                    return "$($ev.payload.playerName) submitted their map!"
-                }
-                return 'Map submitted!'
+                $name = if ($p -and $p.playerName) { $p.playerName } else { '?' }
+                if ($p -and $p.correct) { return "$name - submitted map - correct! win!" }
+                return "$name - submitted map - $($p.wrong) wrong ($($p.submitsLeft) left)"
             }
-            'portal_used'   { return 'You teleported!' }
-            'clue_received' { return 'Clue received!' }
-            'turn_skipped'  { return 'Turn skipped (timed out)' }
-            default         { return $ev.kind }
+            'portal_used'   { return 'portal - teleported' }
+            'clue_received' { return 'clue received' }
+            'turn_skipped'  {
+                $name = if ($p -and $p.playerName) { $p.playerName } else { '?' }
+                return "$name - turn skipped"
+            }
+            default { return $ev.kind }
         }
     }
 
@@ -127,43 +174,48 @@ $ps.Runspace = $rs
         $isMyTurn = ($data.currentTurn -eq $shared.myId)
         $now      = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
         $secsLeft = [Math]::Max(0, [int](($data.turnEndsAt - $now) / 1000))
+        $turnNum  = $data.turn
 
-        $turnName = if ($isMyTurn) {
-            $shared.playerName
-        } else {
+        $turnName = if ($isMyTurn) { 'YOUR TURN' } else {
             $match = $data.others | Where-Object { $_.id -eq $data.currentTurn } | Select-Object -First 1
-            if ($match) { $match.name } else { '?' }
+            if ($match) { "$($match.name)'s turn" } else { "?'s turn" }
         }
 
         $inv = if ($self.inventory -and $self.inventory.Count -gt 0) {
             ($self.inventory | ForEach-Object { $_.kind }) -join ', '
-        } else { 'empty' }
+        } else { '─' }
 
         $others = if ($data.others -and $data.others.Count -gt 0) {
-            ($data.others | ForEach-Object { "$(if ($_.alive) { [char]0x2713 } else { [char]0x2717 }) $($_.name)" }) -join '  '
-        } else { 'none' }
+            ($data.others | ForEach-Object { "$(if ($_.alive) { '●' } else { '✗' }) $($_.name)" }) -join '  '
+        } else { '─' }
 
-        $sep = [string]([char]0x2500) * 44
+        # track map size for painter
+        if ($data.mapStats -and $data.mapStats.mapSize) {
+            $shared.gameMapSize = $data.mapStats.mapSize
+        }
+
+        $sep = [string]([char]0x2500) * 48
 
         [Console]::WriteLine('')
         [Console]::WriteLine($sep)
-        $turnStatus = if ($isMyTurn) { 'YOUR TURN' } else { "$turnName's turn" }
-        [Console]::WriteLine("  Turn $($data.turn)  |  $turnStatus  |  $($secsLeft)s left")
+        [Console]::WriteLine("  Turn $turnNum  |  $turnName  |  $($secsLeft)s left")
         [Console]::WriteLine($sep)
-        [Console]::WriteLine("  Explored: $($self.visitedCount)/$($self.totalCells)")
-        [Console]::WriteLine("  Items: $inv")
-        [Console]::WriteLine("  Others: $others")
+        [Console]::WriteLine("  Explored $($self.visitedCount)/$($self.totalCells)  Items: $inv  Others: $others")
 
         if ($data.events -and $data.events.Count -gt 0) {
             [Console]::WriteLine($sep)
             foreach ($ev in $data.events) {
-                [Console]::WriteLine("  > $(Format-Event $ev)")
+                $txt = Format-Event $ev
+                [Console]::WriteLine("  > $txt")
+                # store in shared action log (keep last 20)
+                $shared.actionLog.Add("T$turnNum  $txt")
+                while ($shared.actionLog.Count -gt 20) { $shared.actionLog.RemoveAt(0) }
             }
         }
 
         [Console]::WriteLine($sep)
         if ($isMyTurn) {
-            [Console]::WriteLine('  [W/A/S/D] Move   [M] Submit map   [F] Shoot   [Q] Quit')
+            [Console]::WriteLine('  [W/A/S/D] Move   [F] Shoot   [M] Map   [G] Start   [L] Log   [T] Chat   [Q] Quit')
         }
     }
 
@@ -246,13 +298,85 @@ $handle = $ps.BeginInvoke()
 
 Write-Host ""
 Write-Host "Controls:" -ForegroundColor Yellow
-Write-Host "  W/A/S/D or Arrow keys = Move  (bullets auto-picked up on move)"
+Write-Host "  W/A/S/D or Arrow keys = Move"
 Write-Host "  G                     = Start game (host only)"
-Write-Host "  M                     = Submit map (win condition)"
-Write-Host "  F then W/A/S/D        = Shoot in direction"
-Write-Host "  T                     = Type a chat message"
+Write-Host "  M                     = Paint map / submit"
+Write-Host "  F then W/A/S/D        = Shoot"
+Write-Host "  L                     = Show last 20 events"
+Write-Host "  T                     = Chat"
 Write-Host "  Q                     = Quit"
 Write-Host ""
+
+function Show-MapPainter {
+    $size  = $shared.gameMapSize
+    $walls = $shared.mapWalls
+
+    function Render-Grid {
+        $hdr = "    " + (0..($size-1) -join " ")
+        Write-Host $hdr
+        $bar = "   +" + ("-" * ($size * 2 - 1)) + "+"
+        Write-Host $bar
+        for ($y = 0; $y -lt $size; $y++) {
+            $row = (0..($size-1) | ForEach-Object {
+                if ($walls.Contains("$_,$y")) { [char]0x2588 } else { '.' }
+            }) -join " "
+            Write-Host "  $y|$row|"
+        }
+        Write-Host $bar
+        Write-Host "  $($walls.Count) walls marked"
+        Write-Host "  X Y=toggle  ok=submit  clear=reset  show=redraw  q=cancel"
+    }
+
+    Render-Grid
+    $done = $false
+    while (-not $done) {
+        $line = (Read-Host "Map").Trim()
+        switch ($line.ToLower()) {
+            'q'     { $done = $true }
+            'cancel'{ $done = $true }
+            'show'  { Render-Grid }
+            'clear' { $walls.Clear(); Render-Grid }
+            { $_ -in 'ok','submit','sub' } {
+                $wallArr = $walls | ForEach-Object {
+                    $parts = $_ -split ','
+                    "{`"x`":$($parts[0]),`"y`":$($parts[1])}"
+                }
+                $wallJson = "[" + ($wallArr -join ",") + "]"
+                Send-Json (Action "{`"kind`":`"submit_map`",`"walls`":$wallJson}")
+                Write-Host "(map submitted)" -ForegroundColor DarkCyan
+                $done = $true
+            }
+            default {
+                $parts = $line -split '\s+'
+                if ($parts.Count -eq 2) {
+                    try {
+                        $x = [int]$parts[0]; $y = [int]$parts[1]
+                        if ($x -ge 0 -and $x -lt $size -and $y -ge 0 -and $y -lt $size) {
+                            $key = "$x,$y"
+                            if ($walls.Contains($key)) { [void]$walls.Remove($key); Write-Host "  ($x,$y) cleared" }
+                            else { [void]$walls.Add($key); Write-Host "  ($x,$y) marked wall" }
+                            Render-Grid
+                        } else { Write-Host "  Use 0-$($size-1) for x and y" -ForegroundColor Red }
+                    } catch { Write-Host "  Type: X Y  or  ok  or  q" -ForegroundColor Red }
+                } else { Write-Host "  Type: X Y  or  ok  or  clear  or  q" -ForegroundColor Red }
+            }
+        }
+    }
+}
+
+function Show-ActionLog {
+    $sep = [string]([char]0x2500) * 48
+    Write-Host ""
+    Write-Host $sep
+    Write-Host ("  {0,-8}  {1}" -f "Turn","Event")
+    Write-Host $sep
+    if ($shared.actionLog.Count -eq 0) {
+        Write-Host "  (no events yet)"
+    } else {
+        foreach ($e in $shared.actionLog) { Write-Host "  $e" }
+    }
+    Write-Host $sep
+}
 
 $shootPending = $false
 while ($shared.ws.State -eq 'Open') {
@@ -288,14 +412,14 @@ while ($shared.ws.State -eq 'Open') {
         'D'          { $json = Action '{"kind":"move","direction":"E"}'; $label = '(move E)' }
         'RightArrow' { $json = Action '{"kind":"move","direction":"E"}'; $label = '(move E)' }
         'G'          { $json = Action "{`"kind`":`"start_game`",`"mapSize`":$($shared.mapSize),`"turnSeconds`":$($shared.turnSecs)}"; $label = '(starting game…)' }
-        'M'          { $json = Action '{"kind":"submit_map"}'; $label = '(submitting map…)' }
+        'M'          { Show-MapPainter }
+        'L'          { Show-ActionLog }
         'F'          { $shootPending = $true
                        Write-Host "Shoot direction: W/A/S/D" -ForegroundColor DarkCyan }
         'T'          {
                        $chatText = Read-Host "Chat"
                        if ($chatText.Trim()) {
                            $json = ChatEnvelope $chatText.Trim()
-                           $label = $null  # no extra label, the broadcast echo is enough
                        }
                      }
         'Q'          { $shared.running = $false
