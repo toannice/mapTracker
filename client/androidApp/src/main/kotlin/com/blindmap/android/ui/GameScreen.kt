@@ -7,6 +7,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -198,20 +199,32 @@ fun GameScreen(vm: GameViewModel, onNavigateToGameOver: () -> Unit) {
 
                 Spacer(Modifier.height(8.dp))
 
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    val btnTextStyle = MaterialTheme.typography.labelSmall
+                    val btnPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)
                     if (g.self.inventory.any { it.kind == "bullet" }) {
                         OutlinedButton(
                             onClick = { showShootDialog = true },
                             enabled = isMyTurn,
-                            modifier = Modifier.weight(1f)
-                        ) { Text("Shoot") }
+                            modifier = Modifier.weight(1f),
+                            contentPadding = btnPadding
+                        ) { Text("Shoot", style = btnTextStyle, maxLines = 1) }
                     }
                     OutlinedButton(
                         onClick = { if (g.paused) vm.sendResume() else vm.sendPause() },
-                        modifier = Modifier.weight(1f)
-                    ) { Text(if (g.paused) "Resume" else "Pause") }
-                    OutlinedButton(onClick = { showMapDialog = true }, modifier = Modifier.weight(1f)) { Text("Map") }
-                    OutlinedButton(onClick = { showInfoDialog = true }, modifier = Modifier.weight(1f)) { Text("Info") }
+                        modifier = Modifier.weight(1f),
+                        contentPadding = btnPadding
+                    ) { Text(if (g.paused) "Resume" else "Pause", style = btnTextStyle, maxLines = 1) }
+                    OutlinedButton(
+                        onClick = { showMapDialog = true },
+                        modifier = Modifier.weight(1f),
+                        contentPadding = btnPadding
+                    ) { Text("Map", style = btnTextStyle, maxLines = 1) }
+                    OutlinedButton(
+                        onClick = { showInfoDialog = true },
+                        modifier = Modifier.weight(1f),
+                        contentPadding = btnPadding
+                    ) { Text("Info", style = btnTextStyle, maxLines = 1) }
                 }
 
                 Spacer(Modifier.height(8.dp))
