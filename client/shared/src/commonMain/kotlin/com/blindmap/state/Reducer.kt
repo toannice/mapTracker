@@ -72,7 +72,10 @@ fun reduce(state: ClientGameState, envelope: Envelope): ClientGameState {
         "chat_msg" -> {
             val msg = json.decodeFromJsonElement<ChatMsgData>(envelope.data)
             val entry = ChatMessage(msg.senderName, msg.ts, msg.text)
-            state.copy(chatMessages = (state.chatMessages + entry).takeLast(50))
+            state.copy(
+                chatMessages = (state.chatMessages + entry).takeLast(50),
+                chatNotification = entry
+            )
         }
         "chat_history" -> {
             val data = json.decodeFromJsonElement<ChatHistoryData>(envelope.data)

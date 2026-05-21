@@ -8,7 +8,7 @@ import (
 func TestGenerateMapCellCounts(t *testing.T) {
 	mapSize := 10
 	rng := rand.New(rand.NewPCG(42, 0))
-	grid := GenerateMap(mapSize, rng, 0.25)
+	grid := GenerateMap(mapSize, rng, 0.25, 2)
 
 	if len(grid) != mapSize {
 		t.Errorf("rows: want %d, got %d", mapSize, len(grid))
@@ -32,7 +32,7 @@ func TestGenerateMapCellCounts(t *testing.T) {
 func TestGenerateMapIsConnected(t *testing.T) {
 	for seed := uint64(0); seed < 30; seed++ {
 		rng := rand.New(rand.NewPCG(seed, seed))
-		grid := GenerateMap(8, rng, 0.25)
+		grid := GenerateMap(8, rng, 0.25, 2)
 		if !isFullyConnected(grid, 8) {
 			t.Fatalf("seed %d: generated map is not fully connected", seed)
 		}

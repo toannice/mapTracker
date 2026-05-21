@@ -44,6 +44,7 @@ type PlayerView struct {
 	Turn        int               `json:"turn"`
 	Phase       game.Phase        `json:"phase"`
 	MapStats    *MapStats         `json:"mapStats,omitempty"`
+	Paused      bool              `json:"paused"`
 }
 
 // buildMapStats aggregates cell-kind counts. portal_a + portal_b collapse to
@@ -138,6 +139,7 @@ func BuildPlayerView(state *game.GameState, playerID game.PlayerID, events []Eve
 		Turn:        state.Turn,
 		Phase:       state.Phase,
 		MapStats:    buildMapStats(state),
+		Paused:      state.Paused,
 	}
 }
 

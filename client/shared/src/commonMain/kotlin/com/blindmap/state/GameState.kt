@@ -43,5 +43,7 @@ data class ClientGameState(
     // Network/reconnect failures — the UI shows these as a persistent banner.
     val connectionError: String? = null,
     // Chat messages for the current room, newest at the end (max 50).
-    val chatMessages: List<ChatMessage> = emptyList()
+    val chatMessages: List<ChatMessage> = emptyList(),
+    // Transient: set to latest incoming chat message, cleared by UI after showing notification.
+    val chatNotification: ChatMessage? = null
 )

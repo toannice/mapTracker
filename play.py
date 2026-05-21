@@ -139,9 +139,11 @@ def fmt_event(ev):
     if kind == "turn_skipped":  return f"{p.get('playerName','?')} - turn skipped"
     return kind
 
-# ── action log ────────────────────────────────────────────────────────────────
+# ── action log & map stats ────────────────────────────────────────────────────
 
-action_log = []  # list of {"turn": int, "text": str}
+action_log  = []   # list of {"turn": int, "text": str}
+map_counts  = {}   # {"blank": n, "wall": n, ...}
+map_paused  = False
 
 def log_events(turn_num, events):
     for ev in events:
@@ -157,6 +159,20 @@ def show_action_log():
         print(f"  {e['turn']:<6}  {e['text']}")
     if not recent:
         print("  (no events yet)")
+    print(SEP)
+
+def show_map_info(map_size):
+    print()
+    print(SEP)
+    if not map_counts:
+        print("  (map info not available yet)")
+    else:
+        print(f"  Map info ({map_size}x{map_size})")
+        print(SEP)
+        print(f"  {'Type':<10} Count")
+        print(SEP)
+        for kind in ("blank", "wall", "bullet", "reward", "trap", "portal"):
+            print(f"  {kind:<10} {map_counts.get(kind, 0)}")
     print(SEP)
 
 # ── map painter ───────────────────────────────────────────────────────────────
@@ -216,11 +232,20 @@ def map_paint_session(size, walls_in):
 # ── state display ─────────────────────────────────────────────────────────────
 
 def show_state(data, my_id):
+    global map_counts, map_paused
+
     self_   = data.get("self", {})
     is_mine = data.get("currentTurn") == my_id
     ends_at = data.get("turnEndsAt", 0)
     secs    = max(0, int((ends_at - now_ms()) / 1000))
     turn    = data.get("turn", 0)
+
+    # track map metadata
+    ms = (data.get("mapStats") or {})
+    if ms.get("counts"):
+        map_counts = ms["counts"]
+    if "paused" in data:
+        map_paused = bool(data["paused"])
 
     others_list = data.get("others") or []
     turn_label  = "YOUR TURN" if is_mine else (
@@ -235,6 +260,9 @@ def show_state(data, my_id):
 
     print()
     print(SEP)
+    if map_paused:
+        print("  *** GAME PAUSED — press P to resume ***")
+        print(SEP)
     print(f"  Turn {turn}  |  {turn_label}  |  {secs}s left")
     print(SEP)
     print(f"  Explored {self_.get('visitedCount',0)}/{self_.get('totalCells',0)}  "
@@ -248,9 +276,10 @@ def show_state(data, my_id):
             print(f"  > {fmt_event(ev)}")
 
     print(SEP)
-    keys = "[W/A/S/D] Move   [F] Shoot   [M] Map   [G] Start   [L] Log   [T] Chat   [Q] Quit"
-    if is_mine:
-        print(f"  {keys}")
+    if map_paused:
+        print("  [P] Resume game")
+    elif is_mine:
+        print("  [W/A/S/D] Move  [F] Shoot  [M] Map  [N] Info  [L] Log  [T] Chat  [P] Pause  [Q] Quit")
 
 # ── async game loop ───────────────────────────────────────────────────────────
 
@@ -338,8 +367,17 @@ async def run(url, name, room, map_size_arg, turn_secs):
                     wall_list = [{"x": x, "y": y} for (x, y) in map_walls]
                     await ws.send(action({"kind": "submit_map", "walls": wall_list}))
                     print("(map submitted)")
+            elif upper == "N":
+                show_map_info(map_size)
             elif upper == "L":
                 show_action_log()
+            elif upper == "P":
+                if map_paused:
+                    await ws.send(action({"kind": "resume"}))
+                    print("(resume sent)")
+                else:
+                    await ws.send(action({"kind": "pause"}))
+                    print("(pause sent)")
             elif upper == "T":
                 text = await loop.run_in_executor(None, readline_input, "Chat: ")
                 text = text.strip()
@@ -389,16 +427,14 @@ async def run(url, name, room, map_size_arg, turn_secs):
                     else:
                         print("=== GAME OVER — No winner ===")
                 elif mtype == "chat_msg":
-                    t = fmt_chat_ts(data.get("ts", 0))
-                    print(f"[{t}] {data.get('senderName','?')}: {data.get('text','')}")
+                    print(f"  [CHAT] {data.get('senderName','?')}: {data.get('text','')}")
                 elif mtype == "chat_history":
                     msgs = data.get("messages") or []
                     if msgs:
-                        print("── chat history ──")
+                        print("  ── chat history ──")
                         for m in msgs:
-                            t = fmt_chat_ts(m.get("ts", 0))
-                            print(f"[{t}] {m.get('senderName','?')}: {m.get('text','')}")
-                        print("──────────────────")
+                            print(f"  [CHAT] {m.get('senderName','?')}: {m.get('text','')}")
+                        print("  ──────────────────")
                 elif mtype == "server_shutdown":
                     print("Server is restarting…")
                 elif mtype == "pong":
@@ -442,8 +478,10 @@ def main():
     print("  G                     = Start game (host only)")
     print("  M                     = Paint map / submit")
     print("  F then W/A/S/D        = Shoot")
+    print("  N                     = Map info (cell counts)")
     print("  L                     = Show last 20 events")
     print("  T                     = Chat")
+    print("  P                     = Pause / Resume")
     print("  Q                     = Quit")
     print()
 

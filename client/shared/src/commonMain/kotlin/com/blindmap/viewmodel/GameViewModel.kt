@@ -123,6 +123,9 @@ class GameViewModel : ViewModel() {
         sendAction(ActionData(kind = "submit_map", walls = walls))
     }
 
+    fun sendPause() = sendAction(ActionData(kind = "pause"))
+    fun sendResume() = sendAction(ActionData(kind = "resume"))
+
     fun sendChat(text: String) {
         val trimmed = text.trim()
         if (trimmed.isEmpty() || trimmed.length > 200) return
@@ -139,6 +142,10 @@ class GameViewModel : ViewModel() {
     /** Clears the transient error banner once the UI has shown it. */
     fun dismissTransientError() {
         _uiState.value = _uiState.value.copy(transientError = null)
+    }
+
+    fun dismissChatNotification() {
+        _uiState.value = _uiState.value.copy(chatNotification = null)
     }
 
     fun reset() {

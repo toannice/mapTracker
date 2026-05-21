@@ -25,6 +25,8 @@ const (
 	ActionMove      ActionKind = "move"
 	ActionShoot     ActionKind = "shoot"
 	ActionSubmitMap ActionKind = "submit_map"
+	ActionPause     ActionKind = "pause"
+	ActionResume    ActionKind = "resume"
 )
 
 type ActionData struct {

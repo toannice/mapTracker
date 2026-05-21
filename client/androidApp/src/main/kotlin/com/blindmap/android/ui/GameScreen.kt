@@ -75,6 +75,17 @@ fun GameScreen(vm: GameViewModel, onNavigateToGameOver: () -> Unit) {
         }
     }
 
+    var chatPopup by remember { mutableStateOf<com.blindmap.state.ChatMessage?>(null) }
+    val chatNotif = state.chatNotification
+    LaunchedEffect(chatNotif?.ts) {
+        if (chatNotif != null) {
+            chatPopup = chatNotif
+            delay(3000)
+            chatPopup = null
+            vm.dismissChatNotification()
+        }
+    }
+
     LaunchedEffect(state.transientError) {
         if (state.transientError != null) {
             delay(3000)
@@ -115,6 +126,9 @@ fun GameScreen(vm: GameViewModel, onNavigateToGameOver: () -> Unit) {
                 Banner("Reconnecting…", MaterialTheme.colorScheme.errorContainer)
             } else if (state.connectionError != null) {
                 Banner("Connection problem: ${state.connectionError}", MaterialTheme.colorScheme.errorContainer)
+            }
+            if (game?.paused == true) {
+                Banner("⏸  GAME PAUSED — tap Resume to continue", MaterialTheme.colorScheme.tertiaryContainer)
             }
 
             game?.let { g ->
@@ -192,6 +206,10 @@ fun GameScreen(vm: GameViewModel, onNavigateToGameOver: () -> Unit) {
                             modifier = Modifier.weight(1f)
                         ) { Text("Shoot") }
                     }
+                    OutlinedButton(
+                        onClick = { if (g.paused) vm.sendResume() else vm.sendPause() },
+                        modifier = Modifier.weight(1f)
+                    ) { Text(if (g.paused) "Resume" else "Pause") }
                     OutlinedButton(onClick = { showMapDialog = true }, modifier = Modifier.weight(1f)) { Text("Map") }
                     OutlinedButton(onClick = { showInfoDialog = true }, modifier = Modifier.weight(1f)) { Text("Info") }
                 }
@@ -209,6 +227,22 @@ fun GameScreen(vm: GameViewModel, onNavigateToGameOver: () -> Unit) {
                     .fillMaxWidth(0.9f)
             ) {
                 Text(msg, modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+
+        chatPopup?.let { msg ->
+            Card(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = if (popup != null) 128.dp else 64.dp)
+                    .fillMaxWidth(0.9f)
+            ) {
+                Text(
+                    "Chat  ${msg.senderName}: ${msg.text}",
+                    modifier = Modifier.padding(12.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
             }
         }
 
