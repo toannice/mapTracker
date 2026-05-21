@@ -33,6 +33,8 @@ func AdvanceTurn(state *game.GameState, rng *rand.Rand, playerID game.PlayerID, 
 		return applyMove(state, rng, p, game.Direction(data.Direction))
 	case protocol.ActionShoot:
 		return applyShoot(state, p, game.Direction(data.Direction))
+	case protocol.ActionPass:
+		return []protocol.Event{}, nil
 	default:
 		return nil, newActionError("UNKNOWN_ACTION", fmt.Sprintf("unknown action: %s", data.Kind))
 	}

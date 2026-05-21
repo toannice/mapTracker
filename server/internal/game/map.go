@@ -5,6 +5,89 @@ import (
 	"math/rand/v2"
 )
 
+// DebugMapSize is the fixed size of the debug test map.
+const DebugMapSize = 12
+
+var debugPositions = map[string]Position{
+	"Alice": {X: 1, Y: 1},
+	"Bot1":  {X: 1, Y: 10},
+	"Bot2":  {X: 10, Y: 1},
+}
+
+// DebugPositionByName returns the fixed start position for a named player in
+// debug mode. Falls back to (1,1) for unknown names.
+func DebugPositionByName(name string) Position {
+	if pos, ok := debugPositions[name]; ok {
+		return pos
+	}
+	return Position{X: 1, Y: 1}
+}
+
+// BuildDebugMap returns a fixed 12×12 map with every cell type present at
+// known coordinates so tests can navigate deterministically.
+//
+// Layout (W=wall, .=empty, B=bullet, R=reward, T=trap, A=portalA, Z=portalB):
+//
+//	  0  1  2  3  4  5  6  7  8  9 10 11
+//	0 W  W  W  W  W  W  W  W  W  W  W  W
+//	1 W  .  .  B  R  T  .  .  .  .  .  W   ← Alice@(1,1), bullet@(3,1), reward@(4,1), trap@(5,1), Bot2@(10,1)
+//	2 W  .  T  .  T  R  T  .  .  .  .  W   ← trap@(2,2), trap@(4,2), reward@(5,2), trap@(6,2)
+//	3 W  .  .  R  .  T  .  .  .  .  .  W   ← reward@(3,3), trap@(5,3)
+//	4 W  .  A  .  Z  .  .  .  .  .  .  W   ← portalA@(2,4), portalB@(4,4)
+//	5 W  .  .  .  .  .  .  .  .  .  .  W
+//	6 W  .  .  .  .  .  .  .  .  .  .  W
+//	7 W  .  .  .  .  .  .  .  .  .  .  W
+//	8 W  .  .  .  .  .  .  .  .  .  .  W
+//	9 W  .  .  .  .  .  .  .  .  .  .  W
+//	10 W .  .  .  .  .  .  .  .  .  .  W   ← Bot1@(1,10)
+//	11 W  W  W  W  W  W  W  W  W  W  W  W
+func BuildDebugMap() [][]Cell {
+	raw := []string{
+		"WWWWWWWWWWWW",
+		"W..BRTT....W", // (3,1)=B (4,1)=R (5,1)=T (6,1)=T — Bot2@(10,1) placed by room
+		"W.T.TRT....W", // (2,2)=T (4,2)=T (5,2)=R (6,2)=T
+		"W..R.T.....W", // (3,3)=R (5,3)=T
+		"W.AZ.......W", // (2,4)=portalA (3,4)=portalB
+		"W..........W",
+		"W..........W",
+		"W..........W",
+		"W..........W",
+		"W..........W",
+		"W..........W", // Bot1@(1,10) placed by room
+		"WWWWWWWWWWWW",
+	}
+	// Use non-colliding portal IDs
+	portalID := 1
+	grid := make([][]Cell, DebugMapSize)
+	for y := 0; y < DebugMapSize; y++ {
+		grid[y] = make([]Cell, DebugMapSize)
+		for x := 0; x < DebugMapSize; x++ {
+			pos := Position{X: x, Y: y}
+			var ch byte
+			if y < len(raw) && x < len(raw[y]) {
+				ch = raw[y][x]
+			}
+			switch ch {
+			case 'W':
+				grid[y][x] = Cell{Pos: pos, Kind: CellWall}
+			case 'B':
+				grid[y][x] = Cell{Pos: pos, Kind: CellBullet}
+			case 'R':
+				grid[y][x] = Cell{Pos: pos, Kind: CellReward}
+			case 'T':
+				grid[y][x] = Cell{Pos: pos, Kind: CellTrap}
+			case 'A':
+				grid[y][x] = Cell{Pos: pos, Kind: CellPortalA, PortalID: portalID}
+			case 'Z':
+				grid[y][x] = Cell{Pos: pos, Kind: CellPortalB, PortalID: portalID}
+			default:
+				grid[y][x] = Cell{Pos: pos, Kind: CellEmpty}
+			}
+		}
+	}
+	return grid
+}
+
 // GenerateMap builds a map with item counts scaled to playerCount.
 // Regenerates until all non-wall cells form a single connected region.
 func GenerateMap(mapSize int, rng *rand.Rand, wallPct float64, playerCount int) [][]Cell {

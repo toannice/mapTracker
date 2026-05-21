@@ -11,10 +11,14 @@ func ResolveReward(state *GameState, p *Player, rng *rand.Rand) []GameEvent {
 
 	switch effect {
 	case 0: // reveal all current positions to everyone
-		positions := make(map[string]Position, len(state.Players))
+		type namedPos struct {
+			Name string   `json:"name"`
+			Pos  Position `json:"pos"`
+		}
+		var positions []namedPos
 		for _, pl := range state.Players {
 			if pl.Alive {
-				positions[string(pl.ID)] = pl.Pos
+				positions = append(positions, namedPos{Name: pl.Name, Pos: pl.Pos})
 			}
 		}
 		events = append(events, GameEvent{Kind: "reward_activated", Payload: map[string]interface{}{
@@ -55,9 +59,10 @@ func ResolveTrap(state *GameState, p *Player, rng *rand.Rand) []GameEvent {
 	switch effect {
 	case 0: // reveal own position to all
 		events = append(events, GameEvent{Kind: "trap_triggered", Payload: map[string]interface{}{
-			"effect": "reveal_position",
-			"playerId": string(p.ID),
-			"pos": p.Pos,
+			"effect":     "reveal_position",
+			"playerId":   string(p.ID),
+			"playerName": p.Name,
+			"pos":        p.Pos,
 		}})
 	case 1: // random teleport
 		newPos := randomEmptyCell(state.Grid, state.MapSize, rng)

@@ -234,14 +234,13 @@ def map_paint_session(size, walls_in):
 def show_state(data, my_id):
     global map_counts, map_paused
 
-    self_   = data.get("self", {})
     is_mine = data.get("currentTurn") == my_id
     ends_at = data.get("turnEndsAt", 0)
     secs    = max(0, int((ends_at - now_ms()) / 1000))
     turn    = data.get("turn", 0)
 
     # track map metadata
-    ms = (data.get("mapStats") or {})
+    ms = data.get("mapStats") or {}
     if ms.get("counts"):
         map_counts = ms["counts"]
     if "paused" in data:
@@ -252,21 +251,12 @@ def show_state(data, my_id):
         next((o["name"] for o in others_list if o["id"] == data.get("currentTurn")), "?") + "'s turn"
     )
 
-    inv = ", ".join(i["kind"] for i in (self_.get("inventory") or [])) or "─"
-    others = "  ".join(
-        ("●" if o.get("alive") else "✗") + " " + o["name"]
-        for o in others_list
-    ) or "─"
-
     print()
     print(SEP)
     if map_paused:
         print("  *** GAME PAUSED — press P to resume ***")
         print(SEP)
     print(f"  Turn {turn}  |  {turn_label}  |  {secs}s left")
-    print(SEP)
-    print(f"  Explored {self_.get('visitedCount',0)}/{self_.get('totalCells',0)}  "
-          f"Items: {inv}  Others: {others}")
 
     events = data.get("events") or []
     if events:
@@ -276,10 +266,7 @@ def show_state(data, my_id):
             print(f"  > {fmt_event(ev)}")
 
     print(SEP)
-    if map_paused:
-        print("  [P] Resume game")
-    elif is_mine:
-        print("  [W/A/S/D] Move  [F] Shoot  [M] Map  [N] Info  [L] Log  [T] Chat  [P] Pause  [Q] Quit")
+    print("  [W/A/S/D] Move  [F] Shoot  [M] Map  [N] Info  [L] Log  [T] Chat  [P] Pause  [Q] Quit")
 
 # ── async game loop ───────────────────────────────────────────────────────────
 
@@ -429,12 +416,7 @@ async def run(url, name, room, map_size_arg, turn_secs):
                 elif mtype == "chat_msg":
                     print(f"  [CHAT] {data.get('senderName','?')}: {data.get('text','')}")
                 elif mtype == "chat_history":
-                    msgs = data.get("messages") or []
-                    if msgs:
-                        print("  ── chat history ──")
-                        for m in msgs:
-                            print(f"  [CHAT] {m.get('senderName','?')}: {m.get('text','')}")
-                        print("  ──────────────────")
+                    pass  # silently ignore — only show live messages
                 elif mtype == "server_shutdown":
                     print("Server is restarting…")
                 elif mtype == "pong":

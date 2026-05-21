@@ -183,14 +183,6 @@ $ps.Runspace = $rs
             if ($match) { "$($match.name)'s turn" } else { "?'s turn" }
         }
 
-        $inv = if ($self.inventory -and $self.inventory.Count -gt 0) {
-            ($self.inventory | ForEach-Object { $_.kind }) -join ', '
-        } else { '─' }
-
-        $others = if ($data.others -and $data.others.Count -gt 0) {
-            ($data.others | ForEach-Object { "$(if ($_.alive) { '●' } else { '✗' }) $($_.name)" }) -join '  '
-        } else { '─' }
-
         # track map size, counts, and paused state
         if ($data.mapStats -and $data.mapStats.mapSize) {
             $shared.gameMapSize = $data.mapStats.mapSize
@@ -211,26 +203,19 @@ $ps.Runspace = $rs
             [Console]::WriteLine($sep)
         }
         [Console]::WriteLine("  Turn $turnNum  |  $turnName  |  $($secsLeft)s left")
-        [Console]::WriteLine($sep)
-        [Console]::WriteLine("  Explored $($self.visitedCount)/$($self.totalCells)  Items: $inv  Others: $others")
 
         if ($data.events -and $data.events.Count -gt 0) {
             [Console]::WriteLine($sep)
             foreach ($ev in $data.events) {
                 $txt = Format-Event $ev
                 [Console]::WriteLine("  > $txt")
-                # store in shared action log (keep last 20)
                 $shared.actionLog.Add("T$turnNum  $txt")
                 while ($shared.actionLog.Count -gt 20) { $shared.actionLog.RemoveAt(0) }
             }
         }
 
         [Console]::WriteLine($sep)
-        if ($isMyTurn -and -not $shared.paused) {
-            [Console]::WriteLine('  [W/A/S/D] Move  [F] Shoot  [M] Map  [N] Info  [L] Log  [T] Chat  [P] Pause  [Q] Quit')
-        } elseif ($shared.paused) {
-            [Console]::WriteLine('  [P] Resume game')
-        }
+        [Console]::WriteLine('  [W/A/S/D] Move  [F] Shoot  [M] Map  [N] Info  [L] Log  [T] Chat  [P] Pause  [Q] Quit')
     }
 
     $buf = [byte[]]::new(65536)
@@ -286,15 +271,7 @@ $ps.Runspace = $rs
                         'chat_msg' {
                             [Console]::WriteLine("  [CHAT] $($msg.data.senderName): $($msg.data.text)")
                         }
-                        'chat_history' {
-                            if ($msg.data.messages.Count -gt 0) {
-                                [Console]::WriteLine("  ── chat history ──")
-                                foreach ($m in $msg.data.messages) {
-                                    [Console]::WriteLine("  [CHAT] $($m.senderName): $($m.text)")
-                                }
-                                [Console]::WriteLine("  ──────────────────")
-                            }
-                        }
+                        'chat_history' { } # silently ignore — only show live messages
                         'server_shutdown' { [Console]::WriteLine('Server is restarting...') }
                         'pong'            { }
                         default           { [Console]::WriteLine("[$($msg.type)] $raw") }

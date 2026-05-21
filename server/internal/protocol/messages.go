@@ -27,6 +27,7 @@ const (
 	ActionSubmitMap ActionKind = "submit_map"
 	ActionPause     ActionKind = "pause"
 	ActionResume    ActionKind = "resume"
+	ActionPass      ActionKind = "pass" // bot/test: skip turn without waiting for timer
 )
 
 type ActionData struct {
@@ -36,6 +37,7 @@ type ActionData struct {
 	Walls       []game.Position `json:"walls,omitempty"`
 	MapSize     int             `json:"mapSize,omitempty"`
 	TurnSeconds int             `json:"turnSeconds,omitempty"`
+	DebugMap    bool            `json:"debugMap,omitempty"`
 }
 
 type EventKind string
