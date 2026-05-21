@@ -80,16 +80,18 @@ type Cell struct {
 }
 
 type GameState struct {
-	RoomID       RoomID              `json:"roomId"`
-	Turn         int                 `json:"turn"`
-	Phase        Phase               `json:"phase"`
-	MapSize      int                 `json:"mapSize"`
-	TurnOrder    []PlayerID          `json:"-"`
-	CurrentIdx   int                 `json:"-"`
-	Players      map[PlayerID]*Player `json:"-"`
-	Grid         [][]Cell            `json:"-"`
-	TurnDeadline time.Time           `json:"-"`
-	TurnSeconds  int                 `json:"turnSeconds"`
-	Winner       *PlayerID           `json:"winner,omitempty"`
-	WinReason    string              `json:"winReason,omitempty"`
+	RoomID           RoomID              `json:"roomId"`
+	Turn             int                 `json:"turn"`
+	Phase            Phase               `json:"phase"`
+	MapSize          int                 `json:"mapSize"`
+	TurnOrder        []PlayerID          `json:"-"`
+	CurrentIdx       int                 `json:"-"`
+	Players          map[PlayerID]*Player `json:"-"`
+	Grid             [][]Cell            `json:"-"`
+	TurnDeadline     time.Time           `json:"-"`
+	TurnSeconds      int                 `json:"turnSeconds"`
+	Winner           *PlayerID           `json:"winner,omitempty"`
+	WinReason        string              `json:"winReason,omitempty"`
+	Paused           bool                `json:"-"`
+	PauseRemainingMs int64               `json:"-"`
 }

@@ -152,6 +152,27 @@ func (r *Room) handleAction(ctx context.Context, msg conn.IncomingMsg) {
 		return
 	}
 
+	if data.Kind == protocol.ActionPause {
+		if !r.state.Paused {
+			r.state.Paused = true
+			remaining := r.state.TurnDeadline.UnixMilli() - time.Now().UnixMilli()
+			if remaining < 0 {
+				remaining = 0
+			}
+			r.state.PauseRemainingMs = remaining
+			r.broadcastTurnResult(nil)
+		}
+		return
+	}
+	if data.Kind == protocol.ActionResume {
+		if r.state.Paused {
+			r.state.Paused = false
+			r.state.TurnDeadline = time.Now().Add(time.Duration(r.state.PauseRemainingMs) * time.Millisecond)
+			r.broadcastTurnResult(nil)
+		}
+		return
+	}
+
 	// submit_map is resolved outside the turn flow — any player, any time,
 	// and it never consumes a turn.
 	if data.Kind == protocol.ActionSubmitMap {
@@ -294,7 +315,7 @@ func (r *Room) startGame() {
 	r.rng = mrand.New(mrand.NewPCG(seed, seed>>32))
 
 	wallPct := randomWallPct(r.rng)
-	r.state.Grid = game.GenerateMap(r.state.MapSize, r.rng, wallPct)
+	r.state.Grid = game.GenerateMap(r.state.MapSize, r.rng, wallPct, len(r.state.Players))
 	slog.Info("map generated", "roomId", r.state.RoomID, "wallPct", int(wallPct*100))
 	r.state.Phase = game.PhaseActive
 	r.state.Turn = 1
@@ -319,6 +340,9 @@ func (r *Room) startGame() {
 }
 
 func (r *Room) checkTurnDeadline() {
+	if r.state.Paused {
+		return
+	}
 	if time.Now().Before(r.state.TurnDeadline) {
 		return
 	}

@@ -57,7 +57,8 @@ data class PlayerView(
     @SerialName("currentTurn") val currentTurn: String,
     val turn: Int,
     val phase: String,
-    @SerialName("mapStats") val mapStats: MapStats? = null
+    @SerialName("mapStats") val mapStats: MapStats? = null,
+    val paused: Boolean = false
 )
 
 @Serializable
@@ -78,3 +79,13 @@ data class GameOverData(
     val winner: String?,
     @SerialName("winReason") val winReason: String
 )
+
+@Serializable
+data class ChatMsgData(
+    @SerialName("senderName") val senderName: String,
+    val ts: Long,
+    val text: String
+)
+
+@Serializable
+data class ChatHistoryData(val messages: List<ChatMsgData>)

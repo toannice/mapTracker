@@ -10,7 +10,6 @@ import asyncio
 import json
 import sys
 import time
-import os
 import random
 import string
 import argparse
@@ -49,7 +48,6 @@ def getch():
     try:
         tty.setraw(fd)
         ch = sys.stdin.read(1)
-        # handle escape sequences (arrow keys → ESC [ A/B/C/D)
         if ch == "\x1b":
             ch2 = sys.stdin.read(1)
             if ch2 == "[":
@@ -60,13 +58,13 @@ def getch():
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
     return ch
 
-def readline_chat() -> str:
-    """Temporarily restore cooked mode to read a full chat line."""
+def readline_input(prompt: str) -> str:
+    """Temporarily restore cooked mode to read a full line."""
     fd = sys.stdin.fileno()
     old = termios.tcgetattr(fd)
     try:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
-        return input("Chat: ")
+        return input(prompt)
     except (EOFError, KeyboardInterrupt):
         return ""
     finally:
@@ -77,98 +75,217 @@ def fmt_chat_ts(ms: int) -> str:
     dt = datetime.datetime.fromtimestamp(ms / 1000)
     return dt.strftime("%H:%M")
 
-SEP = "─" * 44
+SEP = "─" * 48
+
+# ── event formatting ──────────────────────────────────────────────────────────
 
 def fmt_event(ev):
     kind = ev.get("kind", "")
     p = ev.get("payload") or {}
+
     if kind == "player_moved":
         name = p.get("playerName", "?")
         dirn = p.get("direction", "?")
         if not p.get("success"):
-            return f"{name} — moved {dirn} — hit a wall"
+            return f"{name} - moved {dirn} - wall"
         bt = p.get("blockType", "blank")
-        if bt == "bullet":
-            return f"{name} — moved {dirn} — {'bullet tile (full)' if p.get('bulletFull') else 'picked up a bullet'}"
-        if bt == "reward":  return f"{name} — moved {dirn} — stepped on a reward"
-        if bt == "trap":    return f"{name} — moved {dirn} — triggered a trap"
-        if bt == "portal":  return f"{name} — moved {dirn} — entered a portal"
-        return f"{name} — moved {dirn}"
+        detail = {
+            "blank":  "empty",
+            "bullet": "bullet full" if p.get("bulletFull") else "picked up bullet",
+            "reward": "reward",
+            "trap":   "trap",
+            "portal": "portal",
+        }.get(bt, bt)
+        return f"{name} - moved {dirn} - ok - {detail}"
+
     if kind == "trap_triggered":
         eff = p.get("effect", "")
         if eff == "reveal_position":
             pos = p.get("pos", {})
-            return f"Trap — position revealed at ({pos.get('x','?')},{pos.get('y','?')})"
-        if eff == "random_teleport": return "Trap — a player was teleported randomly"
-        if eff == "lose_next_turn":  return "Trap — a player loses their next turn"
-        if eff == "lose_bullet":     return "Trap — a player lost their bullet"
-        if eff == "info_blackout":   return "Trap — a player's info is blacked out"
-        return "Trap triggered"
+            return f"trap - position revealed ({pos.get('x','?')},{pos.get('y','?')})"
+        return {
+            "random_teleport": "trap - random teleport",
+            "lose_next_turn":  "trap - lose next turn",
+            "lose_bullet":     "trap - lost bullet",
+            "info_blackout":   "trap - info blackout",
+        }.get(eff, f"trap - {eff}")
+
     if kind == "reward_activated":
         eff = p.get("effect", "")
-        if eff == "all_positions_revealed": return "Reward — everyone's positions revealed"
-        if eff == "nearest_direction":      return f"Reward — nearest player is {p.get('direction','?')}"
-        if eff == "all_bullet_locations":   return "Reward — all bullet tiles revealed"
-        return "Reward activated"
+        if eff == "nearest_direction":
+            return f"reward - nearest player is {p.get('direction','?')}"
+        return {
+            "all_positions_revealed": "reward - all positions revealed",
+            "all_bullet_locations":   "reward - all bullet tiles revealed",
+        }.get(eff, f"reward - {eff}")
+
     if kind == "player_eliminated":
         victim = p.get("playerName", "?")
-        by     = p.get("byPlayerName")
-        return f"{by} — shot — {victim} eliminated" if by else f"{victim} — eliminated"
+        by = p.get("byPlayerName")
+        return f"{by} shot {victim} - eliminated" if by else f"{victim} - eliminated"
+
     if kind == "shot_fired":
         by = p.get("byPlayerName", "?")
-        dirn = p.get("direction", "")
-        return f"{by} — fired {dirn}".rstrip()
+        return f"{by} - fired {p.get('direction', '')}"
+
     if kind == "map_submitted":
         name = p.get("playerName", "?")
-        if p.get("correct"): return f"{name} — submitted map — correct! Win!"
-        return f"{name} — submitted map — {p.get('wrong',0)} cell(s) wrong"
-    if kind == "portal_used":   return "Portal — a player teleported"
-    if kind == "clue_received": return "Clue received"
-    if kind == "turn_skipped":  return f"{p.get('playerName','?')} — turn skipped"
-    return kind.replace("_", " ")
+        if p.get("correct"):
+            return f"{name} - submitted map - correct! win!"
+        return f"{name} - submitted map - {p.get('wrong', 0)} wrong ({p.get('submitsLeft', '?')} left)"
 
-def show_state(data, my_id, player_name):
+    if kind == "portal_used":   return "portal - teleported"
+    if kind == "clue_received": return "clue received"
+    if kind == "turn_skipped":  return f"{p.get('playerName','?')} - turn skipped"
+    return kind
+
+# ── action log & map stats ────────────────────────────────────────────────────
+
+action_log  = []   # list of {"turn": int, "text": str}
+map_counts  = {}   # {"blank": n, "wall": n, ...}
+map_paused  = False
+
+def log_events(turn_num, events):
+    for ev in events:
+        action_log.append({"turn": turn_num, "text": fmt_event(ev)})
+
+def show_action_log():
+    recent = action_log[-20:]
+    print()
+    print(SEP)
+    print(f"  {'Turn':<6}  Event")
+    print(SEP)
+    for e in recent:
+        print(f"  {e['turn']:<6}  {e['text']}")
+    if not recent:
+        print("  (no events yet)")
+    print(SEP)
+
+def show_map_info(map_size):
+    print()
+    print(SEP)
+    if not map_counts:
+        print("  (map info not available yet)")
+    else:
+        print(f"  Map info ({map_size}x{map_size})")
+        print(SEP)
+        print(f"  {'Type':<10} Count")
+        print(SEP)
+        for kind in ("blank", "wall", "bullet", "reward", "trap", "portal"):
+            print(f"  {kind:<10} {map_counts.get(kind, 0)}")
+    print(SEP)
+
+# ── map painter ───────────────────────────────────────────────────────────────
+
+def render_map(size, walls):
+    hdr = "    " + " ".join(f"{x}" for x in range(size))
+    print(hdr)
+    print("   +" + "─" * (size * 2 - 1) + "+")
+    for y in range(size):
+        row = " ".join("█" if (x, y) in walls else "·" for x in range(size))
+        print(f"  {y}|{row}|")
+    print("   +" + "─" * (size * 2 - 1) + "+")
+    print(f"   {len(walls)} walls marked")
+    print("   X Y=toggle  ok=submit  clear=reset  q=cancel")
+
+def map_paint_session(size, walls_in):
+    """Blocking map-paint session (runs in thread executor). Returns (walls_set, submit)."""
+    walls = set(walls_in)
+    render_map(size, walls)
+    while True:
+        try:
+            line = readline_input("Map> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return walls, False
+        if line.lower() in ("q", "quit", "cancel"):
+            return walls, False
+        if line.lower() in ("ok", "submit", "sub"):
+            return walls, True
+        if line.lower() == "clear":
+            walls.clear()
+            render_map(size, walls)
+            continue
+        if line.lower() == "show":
+            render_map(size, walls)
+            continue
+        parts = line.split()
+        if len(parts) == 2:
+            try:
+                x, y = int(parts[0]), int(parts[1])
+                if 0 <= x < size and 0 <= y < size:
+                    key = (x, y)
+                    if key in walls:
+                        walls.discard(key)
+                        print(f"   ({x},{y}) cleared")
+                    else:
+                        walls.add(key)
+                        print(f"   ({x},{y}) marked wall")
+                    render_map(size, walls)
+                else:
+                    print(f"   Use 0-{size-1} for x and y")
+            except ValueError:
+                print("   Type: X Y  or  ok  or  q")
+        else:
+            print("   Type: X Y  or  ok  or  clear  or  q")
+    return walls, False
+
+# ── state display ─────────────────────────────────────────────────────────────
+
+def show_state(data, my_id):
+    global map_counts, map_paused
+
     self_   = data.get("self", {})
     is_mine = data.get("currentTurn") == my_id
     ends_at = data.get("turnEndsAt", 0)
     secs    = max(0, int((ends_at - now_ms()) / 1000))
+    turn    = data.get("turn", 0)
 
-    inv = ", ".join(i["kind"] for i in (self_.get("inventory") or [])) or "empty"
+    # track map metadata
+    ms = (data.get("mapStats") or {})
+    if ms.get("counts"):
+        map_counts = ms["counts"]
+    if "paused" in data:
+        map_paused = bool(data["paused"])
+
     others_list = data.get("others") or []
-    others = "  ".join(
-        ("✓" if o.get("alive") else "✗") + " " + o["name"]
-        for o in others_list
-    ) or "none"
-
-    turn_label = "YOUR TURN" if is_mine else (
+    turn_label  = "YOUR TURN" if is_mine else (
         next((o["name"] for o in others_list if o["id"] == data.get("currentTurn")), "?") + "'s turn"
     )
 
+    inv = ", ".join(i["kind"] for i in (self_.get("inventory") or [])) or "─"
+    others = "  ".join(
+        ("●" if o.get("alive") else "✗") + " " + o["name"]
+        for o in others_list
+    ) or "─"
+
     print()
     print(SEP)
-    print(f"  Turn {data.get('turn',0)}  |  {turn_label}  |  {secs}s left")
+    if map_paused:
+        print("  *** GAME PAUSED — press P to resume ***")
+        print(SEP)
+    print(f"  Turn {turn}  |  {turn_label}  |  {secs}s left")
     print(SEP)
-    print(f"  Explored: {self_.get('visitedCount',0)}/{self_.get('totalCells',0)}")
-    print(f"  Items: {inv}")
-    print(f"  Others: {others}")
+    print(f"  Explored {self_.get('visitedCount',0)}/{self_.get('totalCells',0)}  "
+          f"Items: {inv}  Others: {others}")
 
     events = data.get("events") or []
     if events:
+        log_events(turn, events)
         print(SEP)
         for ev in events:
             print(f"  > {fmt_event(ev)}")
 
     print(SEP)
-    if is_mine:
-        print("  [W/A/S/D] Move   [M] Submit map   [F] Shoot   [G] Start   [Q] Quit")
+    if map_paused:
+        print("  [P] Resume game")
+    elif is_mine:
+        print("  [W/A/S/D] Move  [F] Shoot  [M] Map  [N] Info  [L] Log  [T] Chat  [P] Pause  [Q] Quit")
 
+# ── async game loop ───────────────────────────────────────────────────────────
 
-# ── async WebSocket game loop ─────────────────────────────────────────────────
-
-async def run(url, name, room, map_size, turn_secs):
+async def run(url, name, room, map_size_arg, turn_secs):
     wsurl = f"{url}?room={room}&name={name}"
 
-    # cold-start retry
     ws = None
     waited = 0
     attempt = 0
@@ -193,9 +310,10 @@ async def run(url, name, room, map_size, turn_secs):
 
     my_id      = ""
     shoot_mode = False
+    map_size   = map_size_arg
+    map_walls  = set()
     loop       = asyncio.get_event_loop()
 
-    # keyboard input thread → queue
     key_queue: asyncio.Queue = asyncio.Queue()
 
     def read_keys():
@@ -210,7 +328,8 @@ async def run(url, name, room, map_size, turn_secs):
     t.start()
 
     async def handle_input():
-        nonlocal shoot_mode
+        nonlocal shoot_mode, map_size, map_walls
+
         while True:
             ch = await key_queue.get()
             upper = ch.upper() if isinstance(ch, str) else ch
@@ -235,14 +354,32 @@ async def run(url, name, room, map_size, turn_secs):
             elif upper in ("D", "RIGHT"):
                 await ws.send(action({"kind": "move", "direction": "E"}))
             elif upper == "G":
-                await ws.send(action({"kind": "start_game", "mapSize": map_size, "turnSeconds": turn_secs}))
-            elif upper == "M":
-                await ws.send(action({"kind": "submit_map", "walls": []}))
+                await ws.send(action({"kind": "start_game", "mapSize": map_size_arg, "turnSeconds": turn_secs}))
             elif upper == "F":
                 shoot_mode = True
                 print("Shoot direction: W/A/S/D")
+            elif upper == "M":
+                new_walls, do_submit = await loop.run_in_executor(
+                    None, map_paint_session, map_size, map_walls
+                )
+                map_walls = new_walls
+                if do_submit:
+                    wall_list = [{"x": x, "y": y} for (x, y) in map_walls]
+                    await ws.send(action({"kind": "submit_map", "walls": wall_list}))
+                    print("(map submitted)")
+            elif upper == "N":
+                show_map_info(map_size)
+            elif upper == "L":
+                show_action_log()
+            elif upper == "P":
+                if map_paused:
+                    await ws.send(action({"kind": "resume"}))
+                    print("(resume sent)")
+                else:
+                    await ws.send(action({"kind": "pause"}))
+                    print("(pause sent)")
             elif upper == "T":
-                text = await loop.run_in_executor(None, readline_chat)
+                text = await loop.run_in_executor(None, readline_input, "Chat: ")
                 text = text.strip()
                 if text:
                     await ws.send(chat_envelope(text))
@@ -251,12 +388,12 @@ async def run(url, name, room, map_size, turn_secs):
                 return
 
     async def handle_messages():
-        nonlocal my_id
+        nonlocal my_id, map_size
         async for raw in ws:
             try:
-                msg  = json.loads(raw)
+                msg   = json.loads(raw)
                 mtype = msg.get("type")
-                data = msg.get("data", {})
+                data  = msg.get("data", {})
                 if mtype == "welcome":
                     my_id = data.get("playerId", "")
                     rs    = data.get("roomState", {})
@@ -264,9 +401,12 @@ async def run(url, name, room, map_size, turn_secs):
                 elif mtype == "lobby_update":
                     players = ", ".join(data.get("players", []))
                     is_host = data.get("isHost", False)
-                    print(f"Lobby: {players}{' (you are host)' if is_host else ''}")
+                    print(f"Lobby: {players}{' (host)' if is_host else ''}")
                 elif mtype in ("game_start", "turn_result"):
-                    show_state(data, my_id, name)
+                    ms = (data.get("mapStats") or {}).get("mapSize")
+                    if ms:
+                        map_size = ms
+                    show_state(data, my_id)
                 elif mtype == "error":
                     code = data.get("code", "")
                     friendly = {
@@ -287,25 +427,22 @@ async def run(url, name, room, map_size, turn_secs):
                     else:
                         print("=== GAME OVER — No winner ===")
                 elif mtype == "chat_msg":
-                    t = fmt_chat_ts(data.get("ts", 0))
-                    print(f"[{t}] {data.get('senderName','?')}: {data.get('text','')}")
+                    print(f"  [CHAT] {data.get('senderName','?')}: {data.get('text','')}")
                 elif mtype == "chat_history":
                     msgs = data.get("messages") or []
                     if msgs:
-                        print("── chat history ──")
+                        print("  ── chat history ──")
                         for m in msgs:
-                            t = fmt_chat_ts(m.get("ts", 0))
-                            print(f"[{t}] {m.get('senderName','?')}: {m.get('text','')}")
-                        print("──────────────────")
+                            print(f"  [CHAT] {m.get('senderName','?')}: {m.get('text','')}")
+                        print("  ──────────────────")
                 elif mtype == "server_shutdown":
                     print("Server is restarting…")
                 elif mtype == "pong":
                     pass
-            except Exception as e:
+            except Exception:
                 print(f"< {raw}")
 
     await asyncio.gather(handle_messages(), handle_input())
-
 
 # ── entry point ───────────────────────────────────────────────────────────────
 
@@ -317,7 +454,7 @@ def main():
     args = parser.parse_args()
 
     name = args.name or input("Your name: ").strip()
-    map_size  = 20
+    map_size  = 10
     turn_secs = 30
     room = args.room
     if not room:
@@ -325,8 +462,8 @@ def main():
         if choice == "C":
             room = rand_room()
             print(f"Room code: {room}  (share this, or start solo)")
-            ms = input("Map size (8-40, Enter=20): ").strip()
-            if ms.isdigit() and 8 <= int(ms) <= 40:
+            ms = input("Map size (4-20, Enter=10): ").strip()
+            if ms.isdigit() and 4 <= int(ms) <= 20:
                 map_size = int(ms)
             ts = input("Turn time in seconds (10-120, Enter=30): ").strip()
             if ts.isdigit() and 10 <= int(ts) <= 120:
@@ -337,17 +474,19 @@ def main():
 
     print()
     print("Controls:")
-    print("  W/A/S/D or Arrow keys = Move  (bullets auto-picked up on move)")
+    print("  W/A/S/D or Arrow keys = Move")
     print("  G                     = Start game (host only)")
-    print("  M                     = Submit map (win condition)")
-    print("  F then W/A/S/D        = Shoot in direction")
-    print("  T                     = Type a chat message")
+    print("  M                     = Paint map / submit")
+    print("  F then W/A/S/D        = Shoot")
+    print("  N                     = Map info (cell counts)")
+    print("  L                     = Show last 20 events")
+    print("  T                     = Chat")
+    print("  P                     = Pause / Resume")
     print("  Q                     = Quit")
     print()
 
     asyncio.run(run(args.url, name, room, map_size, turn_secs))
     print("Disconnected.")
-
 
 if __name__ == "__main__":
     main()
