@@ -32,7 +32,7 @@ class GameViewModel : ViewModel() {
     private var currentRoomCode: String = ""
     private var currentPlayerName: String = ""
 
-    fun connect(serverUrl: String, roomCode: String, playerName: String) {
+    fun connect(serverUrl: String, roomCode: String, playerName: String, playerId: String? = null) {
         this.serverUrl = serverUrl
         this.currentRoomCode = roomCode
         this.currentPlayerName = playerName
@@ -43,7 +43,7 @@ class GameViewModel : ViewModel() {
             var attempt = 0
             while (true) {
                 try {
-                    wsClient.connect(serverUrl, roomCode, playerName)
+                    wsClient.connect(serverUrl, roomCode, playerName, playerId)
                     break  // session ended normally; onClosed collector handles reconnect
                 } catch (e: Exception) {
                     val remaining = coldStartDeadline - System.currentTimeMillis()

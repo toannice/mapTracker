@@ -141,7 +141,7 @@ Event kinds inside `turn_result.events`: `player_moved`, `trap_triggered`, `rewa
 - **Map logging for debug**: server logs full map state for replay/audit; no active anti-cheat needed beyond authoritative server
 - **RNG seeded with `crypto/rand`**: map generation and item randomization are not reproducible by clients
 
-## Project Status (as of 2026-05-19)
+## Project Status (as of 2026-05-22)
 
 ### MVP — SHIPPED ✓ (merged to `master` 2026-05-19)
 
@@ -151,9 +151,23 @@ Event kinds inside `turn_result.events`: `player_moved`, `trap_triggered`, `rewa
 | Phase 2 — UX overhaul + map-reconstruction | Done |
 | Cold-start UX (Android + terminal) | Done |
 | Terminal formatted output + shoot/map keys | Done |
+| Input validation + Q-confirm + rejoin session | Done |
 | Merged to `master` | Done |
 
 Live server: `https://maptracker-c68n.onrender.com`
+
+### Input validation & UX hardening (2026-05-22)
+
+Applied to both `play.ps1` (terminal) and Android:
+
+- **Input validation** — all prompts loop on bad input with a red error message:
+  `play.ps1`: name (1–20 chars), room code (6 alphanumeric), C/J choice, map size (8–40 int), turn seconds (10–120 int).
+  Android: inline error text under name / room code fields; room code filtered to alphanumeric on input.
+- **Q confirmation** — pressing Q in the terminal shows a second prompt; must press Q again to confirm exit, any other key cancels.
+- **Rejoin last room** — session (`roomCode`, `playerName`, `playerId`) is saved on every successful `welcome`.
+  `play.ps1`: stored as `blindmap_session.json` next to the script; offered on next launch.
+  Android: stored in `SharedPreferences`; a Rejoin card appears on the lobby screen.
+  If the server rejects the rejoin (`GAME_IN_PROGRESS`), the session is cleared and the user is prompted to start fresh.
 
 ### Upgrade backlog (Phase 3+)
 

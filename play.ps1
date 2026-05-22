@@ -1,28 +1,92 @@
 # Blind Map Survival — terminal client
 # Usage: .\play.ps1  (or  .\play.ps1 -Url wss://... -Name Bob -Room ABC123)
 param(
-    [string]$Url  = "wss://maptracker-c68n.onrender.com/ws",
-    [string]$Name = "",
-    [string]$Room = ""
+    [string]$Url      = "wss://maptracker-c68n.onrender.com/ws",
+    [string]$Name     = "",
+    [string]$Room     = "",
+    [string]$PlayerId = ""
 )
 
-if (!$Name) { $Name = Read-Host "Your name" }
-$MapSize    = 10
+$sessionFile = Join-Path $PSScriptRoot "blindmap_session.json"
+
+# ── Input validation helpers ──────────────────────────────────────────────────
+function Read-ValidName {
+    while ($true) {
+        $v = (Read-Host "Your name").Trim()
+        if ($v.Length -ge 1 -and $v.Length -le 20) { return $v }
+        Write-Host "! Name must be 1-20 characters. Try again." -ForegroundColor Red
+    }
+}
+
+function Read-ValidRoomCode {
+    while ($true) {
+        $v = (Read-Host "Room code (6 letters/digits)").ToUpper().Trim()
+        if ($v -match '^[A-Z0-9]{6}$') { return $v }
+        Write-Host "! Room code must be exactly 6 letters or digits (A-Z, 0-9). Try again." -ForegroundColor Red
+    }
+}
+
+function Read-ValidInt {
+    param([string]$Prompt, [int]$Min, [int]$Max)
+    while ($true) {
+        $raw = (Read-Host $Prompt).Trim()
+        $n = 0
+        if ([int]::TryParse($raw, [ref]$n) -and $n -ge $Min -and $n -le $Max) { return $n }
+        Write-Host "! Must be a whole number between $Min and $Max. Try again." -ForegroundColor Red
+    }
+}
+
+# ── Session / rejoin ──────────────────────────────────────────────────────────
+$rejoinAttempt = $false
+if (-not $Name -and -not $Room) {
+    if (Test-Path $sessionFile) {
+        try {
+            $sess = Get-Content $sessionFile -Raw | ConvertFrom-Json
+            if ($sess.roomCode -and $sess.playerName -and $sess.playerId) {
+                Write-Host ""
+                Write-Host "Last session: room $($sess.roomCode) as '$($sess.playerName)'." -ForegroundColor Cyan
+                $ans = ''
+                while ($ans -ne 'Y' -and $ans -ne 'N') {
+                    $ans = (Read-Host "Rejoin? [Y/N]").Trim().ToUpper()
+                    if ($ans -ne 'Y' -and $ans -ne 'N') {
+                        Write-Host "! Enter Y to rejoin or N to start fresh." -ForegroundColor Red
+                    }
+                }
+                if ($ans -eq 'Y') {
+                    $Name          = $sess.playerName
+                    $Room          = $sess.roomCode
+                    $PlayerId      = $sess.playerId
+                    $rejoinAttempt = $true
+                }
+            }
+        } catch { }
+    }
+}
+
+# ── Fresh-start prompts (only if not pre-filled by rejoin or CLI args) ────────
+if (-not $Name) { $Name = Read-ValidName }
+
+$MapSize    = 20
 $TurnSecs   = 30
 $IsCreating = $false
-if (!$Room) {
-    $c = Read-Host "C=Create room   J=Join room"
-    if ($c -ieq 'C') {
+
+if (-not $Room) {
+    $choice = ''
+    while ($choice -ne 'C' -and $choice -ne 'J') {
+        $choice = (Read-Host "C=Create room   J=Join room").Trim().ToUpper()
+        if ($choice -ne 'C' -and $choice -ne 'J') {
+            Write-Host "! Enter C to create a room or J to join one." -ForegroundColor Red
+        }
+    }
+    if ($choice -eq 'C') {
         $IsCreating = $true
         $Room = -join ((65..90 + 48..57) | Get-Random -Count 6 | ForEach-Object { [char]$_ })
         Write-Host "Room code: $Room  (share this with others, or start solo)" -ForegroundColor Cyan
-        $ms = Read-Host "Map size (4-20, Enter=10)"
-        if ($ms -match '^\d+$' -and [int]$ms -ge 4 -and [int]$ms -le 20) { $MapSize = [int]$ms }
-        $ts = Read-Host "Turn time in seconds (10-120, Enter=30)"
-        if ($ts -match '^\d+$' -and [int]$ts -ge 10 -and [int]$ts -le 120) { $TurnSecs = [int]$ts }
+        $MapSize  = Read-ValidInt -Prompt "Map size (8-40)" -Min 8 -Max 40
+        $TurnSecs = Read-ValidInt -Prompt "Turn time in seconds (10-120)" -Min 10 -Max 120
         Write-Host "Settings: ${MapSize}x${MapSize} map, ${TurnSecs}s turns  (wall density randomised each game)" -ForegroundColor DarkCyan
     } else {
-        $Room = (Read-Host "Room code").ToUpper()
+        $Room = Read-ValidRoomCode
     }
 }
 
@@ -33,6 +97,7 @@ $ct  = [System.Threading.CancellationToken]::None
 $enc = [System.Text.Encoding]::UTF8
 
 $wsUrl = "$Url`?room=$Room&name=$([Uri]::EscapeDataString($Name))"
+if ($PlayerId) { $wsUrl += "&playerId=$([Uri]::EscapeDataString($PlayerId))" }
 
 # Cold-start retry loop — Render free tier can take up to 60s to wake
 $connected = $false
@@ -84,17 +149,20 @@ function Format-ChatTs([long]$ms) {
 
 # Background receive loop
 $shared = [hashtable]::Synchronized(@{
-    ws          = $ws
-    running     = $true
-    myId        = ''
-    playerName  = $Name
-    mapSize     = $MapSize
-    turnSecs    = $TurnSecs
-    actionLog   = [System.Collections.Generic.List[string]]::new()
-    mapWalls    = [System.Collections.Generic.HashSet[string]]::new()
-    gameMapSize = $MapSize
-    paused      = $false
-    mapCounts   = $null
+    ws            = $ws
+    running       = $true
+    myId          = ''
+    playerName    = $Name
+    mapSize       = $MapSize
+    turnSecs      = $TurnSecs
+    actionLog     = [System.Collections.Generic.List[string]]::new()
+    mapWalls      = [System.Collections.Generic.HashSet[string]]::new()
+    gameMapSize   = $MapSize
+    paused        = $false
+    mapCounts     = $null
+    sessionFile   = $sessionFile
+    rejoinAttempt = $rejoinAttempt
+    rejoinFailed  = $false
 })
 $rs = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
 $rs.Open()
@@ -183,7 +251,7 @@ $ps.Runspace = $rs
             if ($match) { "$($match.name)'s turn" } else { "?'s turn" }
         }
 
-        # track map size, counts, and paused state
+        # Track map stats and pause state for map painter / info commands
         if ($data.mapStats -and $data.mapStats.mapSize) {
             $shared.gameMapSize = $data.mapStats.mapSize
         }
@@ -194,6 +262,14 @@ $ps.Runspace = $rs
             $shared.paused = [bool]$data.paused
         }
 
+        $inv = if ($self -and $self.inventory -and $self.inventory.Count -gt 0) {
+            ($self.inventory | ForEach-Object { $_.kind }) -join ', '
+        } else { 'empty' }
+
+        $others = if ($data.others -and $data.others.Count -gt 0) {
+            ($data.others | ForEach-Object { "$(if ($_.alive) { [char]0x2713 } else { [char]0x2717 }) $($_.name)" }) -join '  '
+        } else { 'none' }
+
         $sep = [string]([char]0x2500) * 48
 
         [Console]::WriteLine('')
@@ -203,6 +279,12 @@ $ps.Runspace = $rs
             [Console]::WriteLine($sep)
         }
         [Console]::WriteLine("  Turn $turnNum  |  $turnName  |  $($secsLeft)s left")
+        [Console]::WriteLine($sep)
+        if ($self) {
+            [Console]::WriteLine("  Explored: $($self.visitedCount)/$($self.totalCells)")
+            [Console]::WriteLine("  Items: $inv")
+        }
+        [Console]::WriteLine("  Others: $others")
 
         if ($data.events -and $data.events.Count -gt 0) {
             [Console]::WriteLine($sep)
@@ -237,6 +319,11 @@ $ps.Runspace = $rs
                             $shared.myId = $msg.data.playerId
                             $code = $msg.data.roomState.roomCode
                             [Console]::WriteLine("Joined room $code")
+                            try {
+                                $pname = $shared.playerName -replace '"', '\"'
+                                $session = "{`"roomCode`":`"$code`",`"playerName`":`"$pname`",`"playerId`":`"$($shared.myId)`"}"
+                                [System.IO.File]::WriteAllText($shared.sessionFile, $session, [System.Text.Encoding]::UTF8)
+                            } catch { }
                         }
                         'lobby_update' {
                             $players = $msg.data.players -join ', '
@@ -246,6 +333,20 @@ $ps.Runspace = $rs
                         'turn_result' { Show-GameState $msg.data }
                         'error' {
                             $friendly = switch ($msg.data.code) {
+                                'GAME_IN_PROGRESS' {
+                                    if ($shared.rejoinAttempt) {
+                                        $shared.rejoinFailed = $true
+                                        $shared.running = $false
+                                        try {
+                                            $shared.ws.CloseOutputAsync('NormalClosure', 'bye',
+                                                [System.Threading.CancellationToken]::None).GetAwaiter().GetResult()
+                                        } catch { }
+                                        "Cannot rejoin: game already in progress. Press any key to exit."
+                                    } else {
+                                        "Game already in progress."
+                                    }
+                                }
+                                'ROOM_FULL'         { "Room is full (max 8 players)." }
                                 'INVALID_DIRECTION' { "Wall! Can't move that way." }
                                 'NOTHING_TO_PICKUP' { 'Nothing to pick up here.' }
                                 'NO_BULLET'         { 'No bullet in inventory.' }
@@ -268,10 +369,8 @@ $ps.Runspace = $rs
                                 [Console]::WriteLine('=== GAME OVER — No winner ===')
                             }
                         }
-                        'chat_msg' {
-                            [Console]::WriteLine("  [CHAT] $($msg.data.senderName): $($msg.data.text)")
-                        }
-                        'chat_history' { } # silently ignore — only show live messages
+                        'chat_msg'     { [Console]::WriteLine("  [CHAT] $($msg.data.senderName): $($msg.data.text)") }
+                        'chat_history' { }
                         'server_shutdown' { [Console]::WriteLine('Server is restarting...') }
                         'pong'            { }
                         default           { [Console]::WriteLine("[$($msg.type)] $raw") }
@@ -295,7 +394,7 @@ Write-Host "  N                     = Map info (cell counts)"
 Write-Host "  L                     = Show last 20 events"
 Write-Host "  T                     = Chat"
 Write-Host "  P                     = Pause / Resume"
-Write-Host "  Q                     = Quit"
+Write-Host "  Q                     = Quit (press Q twice to confirm)"
 Write-Host ""
 
 function Show-MapPainter {
@@ -323,10 +422,10 @@ function Show-MapPainter {
     while (-not $done) {
         $line = (Read-Host "Map").Trim()
         switch ($line.ToLower()) {
-            'q'     { $done = $true }
-            'cancel'{ $done = $true }
-            'show'  { Render-Grid }
-            'clear' { $walls.Clear(); Render-Grid }
+            'q'      { $done = $true }
+            'cancel' { $done = $true }
+            'show'   { Render-Grid }
+            'clear'  { $walls.Clear(); Render-Grid }
             { $_ -in 'ok','submit','sub' } {
                 $wallArr = $walls | ForEach-Object {
                     $parts = $_ -split ','
@@ -347,9 +446,9 @@ function Show-MapPainter {
                             if ($walls.Contains($key)) { [void]$walls.Remove($key); Write-Host "  ($x,$y) cleared" }
                             else { [void]$walls.Add($key); Write-Host "  ($x,$y) marked wall" }
                             Render-Grid
-                        } else { Write-Host "  Use 0-$($size-1) for x and y" -ForegroundColor Red }
-                    } catch { Write-Host "  Type: X Y  or  ok  or  q" -ForegroundColor Red }
-                } else { Write-Host "  Type: X Y  or  ok  or  clear  or  q" -ForegroundColor Red }
+                        } else { Write-Host "  ! Use 0-$($size-1) for x and y" -ForegroundColor Red }
+                    } catch { Write-Host "  ! Type: X Y  or  ok  or  q" -ForegroundColor Red }
+                } else { Write-Host "  ! Type: X Y  or  ok  or  clear  or  q" -ForegroundColor Red }
             }
         }
     }
@@ -388,7 +487,7 @@ function Show-MapInfo {
 }
 
 $shootPending = $false
-while ($shared.ws.State -eq 'Open') {
+while ($shared.ws.State -eq 'Open' -and $shared.running) {
     $k = [Console]::ReadKey($true)
 
     if ($shootPending) {
@@ -431,17 +530,21 @@ while ($shared.ws.State -eq 'Open') {
                            $json = Action '{"kind":"pause"}'; $label = '(pausing…)'
                        }
                      }
-        'F'          { $shootPending = $true
-                       Write-Host "Shoot direction: W/A/S/D" -ForegroundColor DarkCyan }
+        'F'          { $shootPending = $true; Write-Host "Shoot direction: W/A/S/D" -ForegroundColor DarkCyan }
         'T'          {
                        $chatText = Read-Host "Chat"
-                       if ($chatText.Trim()) {
-                           $json = ChatEnvelope $chatText.Trim()
-                       }
+                       if ($chatText.Trim()) { $json = ChatEnvelope $chatText.Trim() }
                      }
-        'Q'          { $shared.running = $false
-                       [void]$ws.CloseOutputAsync('NormalClosure','bye',$ct).GetAwaiter().GetResult()
-                       break }
+        'Q'          {
+                       Write-Host "Quit? Press Q again to confirm, or any other key to cancel." -ForegroundColor Yellow
+                       $confirm = [Console]::ReadKey($true)
+                       if ($confirm.Key -eq 'Q') {
+                           $shared.running = $false
+                           [void]$ws.CloseOutputAsync('NormalClosure', 'bye', $ct).GetAwaiter().GetResult()
+                           break
+                       }
+                       Write-Host "(quit cancelled)" -ForegroundColor DarkGray
+                     }
     }
     if ($label) { Write-Host $label -ForegroundColor DarkGray }
     if ($json)  { Send-Json $json }
@@ -449,4 +552,11 @@ while ($shared.ws.State -eq 'Open') {
 
 $ps.EndInvoke($handle) | Out-Null
 $rs.Close()
-Write-Host "Disconnected."
+
+if ($shared.rejoinFailed) {
+    Write-Host ""
+    Write-Host "Session cleared — run the script again to start fresh." -ForegroundColor Yellow
+    Remove-Item $sessionFile -ErrorAction SilentlyContinue
+} else {
+    Write-Host "Disconnected."
+}
