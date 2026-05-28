@@ -101,8 +101,9 @@ def fmt_event(ev):
     if kind == "trap_triggered":
         eff = p.get("effect", "")
         if eff == "reveal_position":
-            pos = p.get("pos", {})
-            return f"trap - position revealed ({pos.get('x','?')},{pos.get('y','?')})"
+            name = p.get("playerName", "?")
+            pos  = p.get("pos", {})
+            return f"trap - {name}'s position revealed: ({pos.get('x','?')},{pos.get('y','?')})"
         return {
             "random_teleport": "trap - random teleport",
             "lose_next_turn":  "trap - lose next turn",
@@ -114,10 +115,22 @@ def fmt_event(ev):
         eff = p.get("effect", "")
         if eff == "nearest_direction":
             return f"reward - nearest player is {p.get('direction','?')}"
-        return {
-            "all_positions_revealed": "reward - all positions revealed",
-            "all_bullet_locations":   "reward - all bullet tiles revealed",
-        }.get(eff, f"reward - {eff}")
+        if eff == "all_bullet_locations":
+            locs = p.get("locations") or []
+            if locs:
+                coords = ", ".join(f"({loc.get('x','?')},{loc.get('y','?')})" for loc in locs)
+                return f"reward - all bullet tiles revealed\n    positions: {coords}"
+            return "reward - all bullet tiles revealed (none on map)"
+        if eff == "all_positions_revealed":
+            positions = p.get("positions") or []
+            if positions:
+                coords = ", ".join(
+                    f"{pos.get('name','?')}({pos.get('pos',{}).get('x','?')},{pos.get('pos',{}).get('y','?')})"
+                    for pos in positions
+                )
+                return f"reward - all positions revealed\n    positions: {coords}"
+            return "reward - all positions revealed"
+        return f"reward - {eff}"
 
     if kind == "player_eliminated":
         victim = p.get("playerName", "?")
@@ -134,9 +147,61 @@ def fmt_event(ev):
             return f"{name} - submitted map - correct! win!"
         return f"{name} - submitted map - {p.get('wrong', 0)} wrong ({p.get('submitsLeft', '?')} left)"
 
-    if kind == "portal_used":   return "portal - teleported"
-    if kind == "clue_received": return "clue received"
+    if kind == "portal_used":
+        dest = p.get("dest", {})
+        return f"portal - teleported → ({dest.get('x','?')},{dest.get('y','?')})"
+
+    if kind == "clue_received":
+        ctype = p.get("type", "")
+        if ctype == "nearest_direction":
+            return f"clue - nearest player is {p.get('direction','?')}"
+        if ctype == "own_start_pos":
+            pos = p.get("pos", {})
+            return f"clue - your start pos: ({pos.get('x','?')},{pos.get('y','?')})"
+        if ctype == "other_player_pos":
+            name = p.get("playerName", "?")
+            pos  = p.get("pos", {})
+            return f"clue - {name} is at ({pos.get('x','?')},{pos.get('y','?')})"
+        if ctype == "surroundings_3x3":
+            return "clue - 3x3 surroundings (see info_revealed)"
+        return f"clue - {ctype}"
     if kind == "turn_skipped":  return f"{p.get('playerName','?')} - turn skipped"
+
+    if kind == "info_cell":
+        name = p.get("playerName", "?")
+        rev  = p.get("revealed", "")
+        if rev == "surroundings":
+            return f"{name} - stepped on Info. 3x3 surroundings."
+        if rev == "player_position":
+            return f"{name} - stepped on Info. {p.get('targetName','?')} positions reveal."
+        if rev == "start_position":
+            return f"{name} - stepped on Info. {name}'s start positions reveal."
+        return f"{name} - stepped on Info."
+
+    if kind == "info_revealed":
+        itype = p.get("type", "")
+        if itype == "surroundings_3x3":
+            cells = p.get("cells", [])
+            grid = {c["rel"]: c["kind"] for c in cells}
+            def sym(r, c):
+                k = grid.get(f"{r}-{c}", "wall")
+                return {"empty":".", "wall":"W", "trap":"T", "reward":"R",
+                        "bullet":"B", "info":"I", "portal_a":"A", "portal_b":"Z"}.get(k, "?")
+            lines = [
+                f"  {sym(0,0)} {sym(0,1)} {sym(0,2)}",
+                f"  {sym(1,0)} @ {sym(1,2)}",
+                f"  {sym(2,0)} {sym(2,1)} {sym(2,2)}",
+            ]
+            return "3x3 surroundings:\n" + "\n".join(lines)
+        if itype == "player_position":
+            name = p.get("playerName","?")
+            pos  = p.get("pos", {})
+            return f"{name} is at ({pos.get('x','?')},{pos.get('y','?')})"
+        if itype == "own_start":
+            pos = p.get("pos", {})
+            return f"your start pos: ({pos.get('x','?')},{pos.get('y','?')})"
+        return f"info revealed: {itype}"
+
     return kind
 
 # ── action log & map stats ────────────────────────────────────────────────────
@@ -156,7 +221,10 @@ def show_action_log():
     print(f"  {'Turn':<6}  Event")
     print(SEP)
     for e in recent:
-        print(f"  {e['turn']:<6}  {e['text']}")
+        lines = e['text'].split('\n')
+        print(f"  {e['turn']:<6}  {lines[0]}")
+        for cont in lines[1:]:
+            print(f"  {'':6}  {cont}")
     if not recent:
         print("  (no events yet)")
     print(SEP)
@@ -171,7 +239,7 @@ def show_map_info(map_size):
         print(SEP)
         print(f"  {'Type':<10} Count")
         print(SEP)
-        for kind in ("blank", "wall", "bullet", "reward", "trap", "portal"):
+        for kind in ("blank", "wall", "bullet", "reward", "trap", "info", "portal"):
             print(f"  {kind:<10} {map_counts.get(kind, 0)}")
     print(SEP)
 
@@ -263,7 +331,8 @@ def show_state(data, my_id):
         log_events(turn, events)
         print(SEP)
         for ev in events:
-            print(f"  > {fmt_event(ev)}")
+            for line in fmt_event(ev).split('\n'):
+                print(f"  > {line}")
 
     print(SEP)
     print("  [W/A/S/D] Move  [F] Shoot  [M] Map  [N] Info  [L] Log  [T] Chat  [P] Pause  [Q] Quit")

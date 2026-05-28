@@ -1,0 +1,79 @@
+Blind Map Survival — Event Notification Table
+Generated: 2026-05-28
+================================================================
+
+Columns: Event Kind | Effect/Subtype | Trigger Player Sees | Others See
+Private events (info_revealed) are filtered server-side via ForPlayerID.
+"same" means all players in the room receive the identical text.
+
+----------------------------------------------------------------
+MOVEMENT
+----------------------------------------------------------------
+player_moved  | success (empty)        | toan - moved left - ok - empty           | same
+player_moved  | success (bullet)       | toan - moved right - ok - picked up bullet | same
+player_moved  | success (bullet full)  | toan - moved right - ok - bullet full    | same
+player_moved  | success (reward)       | toan - moved up - ok - reward            | same
+player_moved  | success (trap)         | toan - moved up - ok - trap              | same
+player_moved  | success (portal)       | toan - moved up - ok - portal            | same
+player_moved  | success (info)         | toan - moved up - ok - info              | same
+player_moved  | wall                   | toan - moved left - wall                 | same
+
+----------------------------------------------------------------
+TRAP
+----------------------------------------------------------------
+trap_triggered | reveal_position  | trap - toan's position revealed: (5,3)  | same
+trap_triggered | random_teleport  | trap - random teleport                   | same
+trap_triggered | lose_next_turn   | trap - lose next turn                    | same
+trap_triggered | lose_bullet      | trap - lost bullet                       | same
+trap_triggered | info_blackout    | trap - info blackout                     | same
+
+----------------------------------------------------------------
+REWARD
+----------------------------------------------------------------
+reward_activated | all_positions_revealed | reward - all positions revealed          | same
+                 |                        |     positions: toan(5,3), bob(7,1)       |
+reward_activated | nearest_direction      | reward - nearest player is N             | same
+reward_activated | all_bullet_locations   | reward - all bullet tiles revealed       | same
+                 |                        |     positions: (2,4), (8,1), (11,6)      |
+
+----------------------------------------------------------------
+PORTAL
+----------------------------------------------------------------
+portal_used | — | portal - teleported → (4,7) | same
+
+----------------------------------------------------------------
+INFO CELL  (public announcement + private detail)
+----------------------------------------------------------------
+info_cell     | surroundings    | toan - stepped on Info. 3x3 surroundings.             | same
+info_cell     | player_position | toan - stepped on Info. bob positions reveal.          | same
+info_cell     | start_position  | toan - stepped on Info. toan's start positions reveal. | same
+
+info_revealed | surroundings_3x3   | 3x3 grid diagram (private to stepper)  | NOT SENT
+info_revealed | player_position    | bob is at (7,1)  (private to stepper)  | NOT SENT
+info_revealed | own_start          | your start pos: (2,2)  (private)       | NOT SENT
+
+----------------------------------------------------------------
+COMBAT
+----------------------------------------------------------------
+shot_fired        | —       | toan - fired left                    | same
+player_eliminated | by shot | bob shot toan - eliminated           | same
+player_eliminated | other   | toan - eliminated                    | same
+
+----------------------------------------------------------------
+MAP SUBMISSION
+----------------------------------------------------------------
+map_submitted | correct | toan - submitted map - correct! win!       | same
+map_submitted | wrong   | toan - submitted map - 3 wrong (2 left)    | same
+
+----------------------------------------------------------------
+MISC
+----------------------------------------------------------------
+turn_skipped | — | toan - turn skipped | same
+
+================================================================
+PRIVACY RULES
+================================================================
+- info_revealed events carry ForPlayerID → only the stepping player receives them
+- All other events are broadcast to every player in the room
+- Positions are formatted as (x,y) throughout (x = column, y = row)
+================================================================
