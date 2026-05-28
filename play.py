@@ -151,20 +151,6 @@ def fmt_event(ev):
         dest = p.get("dest", {})
         return f"portal - teleported → ({dest.get('x','?')},{dest.get('y','?')})"
 
-    if kind == "clue_received":
-        ctype = p.get("type", "")
-        if ctype == "nearest_direction":
-            return f"clue - nearest player is {p.get('direction','?')}"
-        if ctype == "own_start_pos":
-            pos = p.get("pos", {})
-            return f"clue - your start pos: ({pos.get('x','?')},{pos.get('y','?')})"
-        if ctype == "other_player_pos":
-            name = p.get("playerName", "?")
-            pos  = p.get("pos", {})
-            return f"clue - {name} is at ({pos.get('x','?')},{pos.get('y','?')})"
-        if ctype == "surroundings_3x3":
-            return "clue - 3x3 surroundings (see info_revealed)"
-        return f"clue - {ctype}"
     if kind == "turn_skipped":  return f"{p.get('playerName','?')} - turn skipped"
 
     if kind == "info_cell":
