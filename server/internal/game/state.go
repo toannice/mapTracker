@@ -47,6 +47,8 @@ type Player struct {
 	Alive        bool              `json:"alive"`
 	SkipNextTurn bool              `json:"-"`
 	InfoBlackout bool              `json:"-"`
+	PendingNuke  bool              `json:"-"`
+	NukeSide     int               `json:"-"`
 	MaxSubmit    int               `json:"-"`
 	Inventory    []Item            `json:"-"`
 	VisitedCells map[Position]bool `json:"-"`
@@ -57,8 +59,10 @@ type Player struct {
 // GameEvent is a game-layer event produced by action resolvers.
 // The room layer converts these to protocol.Event for wire encoding.
 type GameEvent struct {
-	Kind    string
-	Payload interface{}
+	Kind           string
+	Payload        interface{}
+	ForPlayerID    PlayerID // non-empty → only send to this player (e.g. clue_received)
+	ActingPlayerID PlayerID // non-empty → strip observer-private fields for other viewers
 }
 
 type CellKind string
@@ -69,6 +73,7 @@ const (
 	CellBullet  CellKind = "bullet"
 	CellReward  CellKind = "reward"
 	CellTrap    CellKind = "trap"
+	CellInfo    CellKind = "info"
 	CellPortalA CellKind = "portal_a"
 	CellPortalB CellKind = "portal_b"
 )

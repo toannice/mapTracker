@@ -7,7 +7,6 @@ import (
 type SelfView struct {
 	ID           game.PlayerID `json:"id"`
 	Name         string        `json:"name"`
-	Pos          game.Position `json:"pos"`
 	Alive        bool          `json:"alive"`
 	Inventory    []game.Item   `json:"inventory"`
 	VisitedCount int           `json:"visitedCount"`
@@ -54,7 +53,7 @@ func buildMapStats(state *game.GameState) *MapStats {
 		return nil
 	}
 	counts := map[string]int{
-		"wall": 0, "blank": 0, "trap": 0, "reward": 0, "bullet": 0, "portal": 0,
+		"wall": 0, "blank": 0, "trap": 0, "reward": 0, "bullet": 0, "portal": 0, "info": 0,
 	}
 	for _, row := range state.Grid {
 		for _, cell := range row {
@@ -71,10 +70,34 @@ func buildMapStats(state *game.GameState) *MapStats {
 				counts["bullet"]++
 			case game.CellPortalA, game.CellPortalB:
 				counts["portal"]++
+			case game.CellInfo:
+				counts["info"]++
 			}
 		}
 	}
 	return &MapStats{MapSize: state.MapSize, Counts: counts}
+}
+
+// extractActorName pulls the first recognisable player name from a set of events.
+func extractActorName(events []Event) string {
+	keys := []string{"playerName", "byPlayerName"}
+	for _, e := range events {
+		switch m := e.Payload.(type) {
+		case map[string]interface{}:
+			for _, k := range keys {
+				if v, ok := m[k].(string); ok && v != "" {
+					return v
+				}
+			}
+		case map[string]string:
+			for _, k := range keys {
+				if v := m[k]; v != "" {
+					return v
+				}
+			}
+		}
+	}
+	return "Someone"
 }
 
 func BuildPlayerView(state *game.GameState, playerID game.PlayerID, events []Event) PlayerView {
@@ -83,7 +106,6 @@ func BuildPlayerView(state *game.GameState, playerID game.PlayerID, events []Eve
 	self := SelfView{
 		ID:           p.ID,
 		Name:         p.Name,
-		Pos:          p.Pos,
 		Alive:        p.Alive,
 		Inventory:    p.Inventory,
 		VisitedCount: len(p.VisitedCells),
@@ -112,17 +134,42 @@ func BuildPlayerView(state *game.GameState, playerID game.PlayerID, events []Eve
 		visible = append(visible, CellView{Pos: cell.Pos, Kind: cell.Kind})
 	}
 
-	// suppress clue events when InfoBlackout is active, then clear it
+	// Pass 1: when InfoBlackout is active suppress ALL events and replace with one
+	// generic notice per actor so the player knows someone acted but learns nothing.
 	filteredEvents := events
-	if p.InfoBlackout {
-		filteredEvents = make([]Event, 0)
-		for _, e := range events {
-			if e.Kind != EventClueReceived {
-				filteredEvents = append(filteredEvents, e)
-			}
-		}
+	if p.InfoBlackout && len(events) > 0 {
+		actor := extractActorName(events)
+		filteredEvents = []Event{{
+			Kind:    "blackout_info",
+			Payload: map[string]string{"playerName": actor},
+		}}
+		p.InfoBlackout = false
+	} else if p.InfoBlackout {
 		p.InfoBlackout = false
 	}
+
+	// Pass 2: apply per-player privacy rules.
+	//   ForPlayerID != ""  → event is private; only the named player sees it.
+	//   ActingPlayerID != "" → observers see the event but with private payload
+	//                          fields (e.g. bulletFull) removed.
+	resolved := make([]Event, 0, len(filteredEvents))
+	for _, e := range filteredEvents {
+		if e.ForPlayerID != "" && e.ForPlayerID != playerID {
+			continue // private event for someone else
+		}
+		if e.ActingPlayerID != "" && e.ActingPlayerID != playerID {
+			if m, ok := e.Payload.(map[string]interface{}); ok {
+				stripped := make(map[string]interface{}, len(m))
+				for k, v := range m {
+					stripped[k] = v
+				}
+				delete(stripped, "bulletFull")
+				e = Event{Kind: e.Kind, Payload: stripped}
+			}
+		}
+		resolved = append(resolved, e)
+	}
+	filteredEvents = resolved
 
 	var currentTurn game.PlayerID
 	if len(state.TurnOrder) > 0 {

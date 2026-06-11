@@ -25,9 +25,8 @@ data class ActionData(
     val direction: String? = null,
     @SerialName("itemId") val itemId: String? = null,
     val walls: List<Position>? = null,
-    val mapSize: Int? = null,
-    val turnSeconds: Int? = null
+    @SerialName("mapSize") val mapSize: Int? = null,
+    @SerialName("turnSeconds") val turnSeconds: Int? = null,
+    @SerialName("nukeX") val nukeX: Int? = null,
+    @SerialName("nukeY") val nukeY: Int? = null
 )
-
-@Serializable
-data class ChatData(val text: String)

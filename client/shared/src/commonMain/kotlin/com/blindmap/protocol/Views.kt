@@ -14,7 +14,6 @@ data class Item(val id: String, val kind: String)
 data class SelfView(
     val id: String,
     val name: String,
-    val pos: Position,
     val alive: Boolean,
     val inventory: List<Item>,
     @SerialName("visitedCount") val visitedCount: Int,

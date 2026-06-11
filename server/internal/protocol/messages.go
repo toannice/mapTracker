@@ -22,12 +22,11 @@ type JoinData struct {
 type ActionKind string
 
 const (
-	ActionMove      ActionKind = "move"
-	ActionShoot     ActionKind = "shoot"
-	ActionSubmitMap ActionKind = "submit_map"
-	ActionPause     ActionKind = "pause"
-	ActionResume    ActionKind = "resume"
-	ActionPass      ActionKind = "pass" // bot/test: skip turn without waiting for timer
+	ActionMove       ActionKind = "move"
+	ActionShoot      ActionKind = "shoot"
+	ActionSubmitMap  ActionKind = "submit_map"
+	ActionNukeTarget ActionKind = "nuke_target"
+	ActionPass       ActionKind = "pass"
 )
 
 type ActionData struct {
@@ -37,7 +36,8 @@ type ActionData struct {
 	Walls       []game.Position `json:"walls,omitempty"`
 	MapSize     int             `json:"mapSize,omitempty"`
 	TurnSeconds int             `json:"turnSeconds,omitempty"`
-	DebugMap    bool            `json:"debugMap,omitempty"`
+	NukeX       int             `json:"nukeX,omitempty"`
+	NukeY       int             `json:"nukeY,omitempty"`
 }
 
 type EventKind string
@@ -52,11 +52,15 @@ const (
 	EventPortalUsed       EventKind = "portal_used"
 	EventClueReceived     EventKind = "clue_received"
 	EventTurnSkipped      EventKind = "turn_skipped"
+	EventNukeFired        EventKind = "nuke_fired"
+	EventBlackoutInfo     EventKind = "blackout_info"
 )
 
 type Event struct {
-	Kind    EventKind   `json:"kind"`
-	Payload interface{} `json:"payload,omitempty"`
+	Kind           EventKind     `json:"kind"`
+	Payload        interface{}   `json:"payload,omitempty"`
+	ForPlayerID    game.PlayerID `json:"-"` // not on wire; skip event for other players
+	ActingPlayerID game.PlayerID `json:"-"` // not on wire; strip private payload fields for observers
 }
 
 type WelcomeData struct {
@@ -82,21 +86,4 @@ type ErrorData struct {
 
 type ServerShutdownData struct {
 	ReconnectAfterMs int `json:"reconnectAfterMs"`
-}
-
-// ChatData is sent client→server when a player sends a chat message.
-type ChatData struct {
-	Text string `json:"text"`
-}
-
-// ChatMsgData is broadcast server→all clients in the room.
-type ChatMsgData struct {
-	SenderName string `json:"senderName"`
-	Ts         int64  `json:"ts"`
-	Text       string `json:"text"`
-}
-
-// ChatHistoryData is sent to a newly joined client with the room's recent history.
-type ChatHistoryData struct {
-	Messages []ChatMsgData `json:"messages"`
 }

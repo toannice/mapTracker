@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -31,6 +32,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", healthHandler)
 	mux.HandleFunc("GET /ws", wsHandler(&cfg, h))
+	mux.HandleFunc("GET /debug/test-room", debugTestRoomHandler(h))
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,
@@ -56,6 +58,32 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	srv.Shutdown(shutdownCtx)
+}
+
+func debugTestRoomHandler(h *hub.Hub) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rm, _, err := h.GetOrCreateRoom(game.TestRoomID)
+		if err != nil {
+			http.Error(w, "server full", http.StatusServiceUnavailable)
+			return
+		}
+
+		rm.TriggerTestGame(game.TestPlayerID, "Tester")
+
+		scheme := "ws"
+		if r.TLS != nil {
+			scheme = "wss"
+		}
+		wsURL := fmt.Sprintf("%s://%s/ws?room=%s&name=Tester&playerId=%s",
+			scheme, r.Host, game.TestRoomID, game.TestPlayerID)
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"roomCode": string(game.TestRoomID),
+			"playerId": string(game.TestPlayerID),
+			"wsUrl":    wsURL,
+		})
+	}
 }
 
 func healthHandler(w http.ResponseWriter, _ *http.Request) {
@@ -99,7 +127,7 @@ func wsHandler(cfg *config.Config, h *hub.Hub) http.HandlerFunc {
 		playerID := game.PlayerID(newPlayerID())
 		c := conn.NewConn(ws, playerName, playerID)
 		room.RegisterConn(playerID, c)
-		defer room.RemoveConn(playerID)
+		defer func() { room.RemoveConn(c.PlayerID()) }()
 
 		connCtx, cancel := context.WithCancel(context.Background())
 		defer cancel()

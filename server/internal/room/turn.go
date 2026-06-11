@@ -33,6 +33,8 @@ func AdvanceTurn(state *game.GameState, rng *rand.Rand, playerID game.PlayerID, 
 		return applyMove(state, rng, p, game.Direction(data.Direction))
 	case protocol.ActionShoot:
 		return applyShoot(state, p, game.Direction(data.Direction))
+	case protocol.ActionNukeTarget:
+		return applyNukeTarget(state, p, data.NukeX, data.NukeY)
 	case protocol.ActionPass:
 		return []protocol.Event{}, nil
 	default:
@@ -87,9 +89,13 @@ func applyMove(state *game.GameState, rng *rand.Rand, p *game.Player, dir game.D
 	case game.CellTrap:
 		blockType = "trap"
 		gameEvents = game.ResolveTrap(state, p, rng)
+	case game.CellInfo:
+		blockType = "info"
+		ev := game.ResolveInfo(state, p, rng)
+		gameEvents = append(gameEvents, ev)
 	case game.CellPortalA, game.CellPortalB:
 		blockType = "portal"
-		gameEvents = game.ResolvePortal(state, p)
+		gameEvents = game.ResolvePortal(state, p, rng)
 	}
 
 	moveEvent := protocol.Event{
@@ -101,6 +107,7 @@ func applyMove(state *game.GameState, rng *rand.Rand, p *game.Player, dir game.D
 			"blockType":  blockType,
 			"bulletFull": bulletFull,
 		},
+		ActingPlayerID: p.ID, // bulletFull is stripped for observers in BuildPlayerView
 	}
 
 	return append([]protocol.Event{moveEvent}, toProtocolEvents(gameEvents)...), nil
@@ -173,6 +180,31 @@ func applyShoot(state *game.GameState, shooter *game.Player, dir game.Direction)
 	}
 
 	return events, nil
+}
+
+func applyNukeTarget(state *game.GameState, p *game.Player, topX, topY int) ([]protocol.Event, error) {
+	if !p.PendingNuke {
+		return nil, newActionError("NO_PENDING_NUKE", "no nuke pending")
+	}
+	gevs := game.ApplyNuke(state, p, topX, topY)
+	state.Paused = false
+
+	// Check last-alive win condition.
+	aliveCount := 0
+	var survivor game.PlayerID
+	for id, pl := range state.Players {
+		if pl.Alive {
+			aliveCount++
+			survivor = id
+		}
+	}
+	if aliveCount == 1 {
+		state.Phase = game.PhaseEnded
+		state.Winner = &survivor
+		state.WinReason = "last_alive"
+	}
+
+	return toProtocolEvents(gevs), nil
 }
 
 // applySubmitMap compares a player's reconstructed wall set against the real
@@ -284,8 +316,10 @@ func toProtocolEvents(gevs []game.GameEvent) []protocol.Event {
 	result := make([]protocol.Event, 0, len(gevs))
 	for _, e := range gevs {
 		result = append(result, protocol.Event{
-			Kind:    protocol.EventKind(e.Kind),
-			Payload: e.Payload,
+			Kind:           protocol.EventKind(e.Kind),
+			Payload:        e.Payload,
+			ForPlayerID:    e.ForPlayerID,
+			ActingPlayerID: e.ActingPlayerID,
 		})
 	}
 	return result

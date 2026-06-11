@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"log/slog"
 	mrand "math/rand/v2"
-	"strings"
 	"time"
 
 	"github.com/your-org/blindmap/internal/config"
@@ -16,16 +15,14 @@ import (
 )
 
 type Room struct {
-	state       *game.GameState
-	conns       map[game.PlayerID]*conn.Conn
-	hostID      game.PlayerID
-	inCh        chan conn.IncomingMsg
-	cfg         *config.Config
-	onDelete    func(game.RoomID)
-	ticker      *time.Ticker
-	rng         *mrand.Rand
-	chatHistory []protocol.ChatMsgData
-	joinOrder   []game.PlayerID // tracks join order for debug-map position assignment
+	state    *game.GameState
+	conns    map[game.PlayerID]*conn.Conn
+	hostID   game.PlayerID
+	inCh     chan conn.IncomingMsg
+	cfg      *config.Config
+	onDelete func(game.RoomID)
+	ticker   *time.Ticker
+	rng      *mrand.Rand
 }
 
 func NewRoom(id game.RoomID, cfg *config.Config, onDelete func(game.RoomID)) *Room {
@@ -70,12 +67,14 @@ func (r *Room) handleMessage(ctx context.Context, msg conn.IncomingMsg) {
 		r.handleJoin(ctx, msg)
 	case "action":
 		r.handleAction(ctx, msg)
-	case "chat":
-		r.handleChat(msg)
 	case "ping":
 		r.handlePing(msg)
 	case "leave":
 		r.disconnect(msg.PlayerID)
+	case "debug_test_setup":
+		r.handleTestSetup(msg)
+	case "debug_test_start":
+		r.handleTestStart()
 	}
 }
 
@@ -90,6 +89,7 @@ func (r *Room) handleJoin(ctx context.Context, msg conn.IncomingMsg) {
 		existingID := game.PlayerID(data.PlayerID)
 		if p, ok := r.state.Players[existingID]; ok {
 			if c, ok2 := r.conns[msg.PlayerID]; ok2 {
+				c.SetPlayerID(existingID) // ReadPump must use the real ID for action routing
 				r.conns[existingID] = c
 				delete(r.conns, msg.PlayerID)
 			}
@@ -120,7 +120,6 @@ func (r *Room) handleJoin(ctx context.Context, msg conn.IncomingMsg) {
 		LastSeen:     time.Now(),
 	}
 	r.state.Players[msg.PlayerID] = p
-	r.joinOrder = append(r.joinOrder, msg.PlayerID)
 	if len(r.state.Players) == 1 {
 		r.hostID = msg.PlayerID
 	}
@@ -139,13 +138,13 @@ func (r *Room) handleAction(ctx context.Context, msg conn.IncomingMsg) {
 	// start_game is a lobby-phase action from the host
 	if string(data.Kind) == "start_game" {
 		if msg.PlayerID == r.hostID && r.state.Phase == game.PhaseLobby && len(r.state.Players) >= 1 {
-			if data.MapSize >= 4 && data.MapSize <= 20 {
+			if data.MapSize >= 8 && data.MapSize <= 40 {
 				r.state.MapSize = data.MapSize
 			}
 			if data.TurnSeconds >= 10 && data.TurnSeconds <= 120 {
 				r.state.TurnSeconds = data.TurnSeconds
 			}
-			r.startGame(data.DebugMap)
+			r.startGame()
 		}
 		return
 	}
@@ -154,24 +153,33 @@ func (r *Room) handleAction(ctx context.Context, msg conn.IncomingMsg) {
 		return
 	}
 
-	if data.Kind == protocol.ActionPause {
-		if !r.state.Paused {
-			r.state.Paused = true
-			remaining := r.state.TurnDeadline.UnixMilli() - time.Now().UnixMilli()
-			if remaining < 0 {
-				remaining = 0
-			}
-			r.state.PauseRemainingMs = remaining
-			r.broadcastTurnResult(nil)
+	// nuke_target is the follow-up to a pending nuke from a reward tile.
+	// It must come from the current turn's player while the game is paused.
+	if data.Kind == protocol.ActionNukeTarget {
+		currentTurn := r.state.TurnOrder[r.state.CurrentIdx%len(r.state.TurnOrder)]
+		if msg.PlayerID != currentTurn {
+			return
 		}
-		return
-	}
-	if data.Kind == protocol.ActionResume {
-		if r.state.Paused {
-			r.state.Paused = false
-			r.state.TurnDeadline = time.Now().Add(time.Duration(r.state.PauseRemainingMs) * time.Millisecond)
-			r.broadcastTurnResult(nil)
+		p, ok := r.state.Players[msg.PlayerID]
+		if !ok || !p.PendingNuke {
+			return
 		}
+		events, err := AdvanceTurn(r.state, r.rng, msg.PlayerID, &data)
+		if err != nil {
+			r.sendError(msg.PlayerID, errCode(err), err.Error())
+			return
+		}
+		// Restore remaining turn time.
+		r.state.TurnDeadline = time.Now().Add(time.Duration(r.state.PauseRemainingMs) * time.Millisecond)
+		r.state.PauseRemainingMs = 0
+		if r.state.Phase == game.PhaseEnded {
+			r.broadcastTurnResult(events)
+			r.broadcastGameOver()
+			time.AfterFunc(60*time.Second, func() { r.onDelete(r.state.RoomID) })
+			return
+		}
+		r.advanceTurnIndex()
+		r.broadcastTurnResult(events)
 		return
 	}
 
@@ -220,35 +228,15 @@ func (r *Room) handleAction(ctx context.Context, msg conn.IncomingMsg) {
 		return
 	}
 
+	// Nuke is pending: pause the turn timer and wait for nuke_target action.
+	if r.state.Paused {
+		r.state.PauseRemainingMs = time.Until(r.state.TurnDeadline).Milliseconds()
+		r.broadcastTurnResult(events)
+		return
+	}
+
 	r.advanceTurnIndex()
 	r.broadcastTurnResult(events)
-}
-
-func (r *Room) handleChat(msg conn.IncomingMsg) {
-	var data protocol.ChatData
-	if err := json.Unmarshal(msg.Envelope.Data, &data); err != nil {
-		return
-	}
-	text := strings.TrimSpace(data.Text)
-	if text == "" || len([]rune(text)) > 200 {
-		return
-	}
-	p, ok := r.state.Players[msg.PlayerID]
-	if !ok {
-		return
-	}
-	chatMsg := protocol.ChatMsgData{
-		SenderName: p.Name,
-		Ts:         time.Now().UnixMilli(),
-		Text:       text,
-	}
-	r.chatHistory = append(r.chatHistory, chatMsg)
-	if len(r.chatHistory) > 50 {
-		r.chatHistory = r.chatHistory[len(r.chatHistory)-50:]
-	}
-	for _, c := range r.conns {
-		r.sendEnvelope(c, "chat_msg", chatMsg)
-	}
 }
 
 func (r *Room) handlePing(msg conn.IncomingMsg) {
@@ -312,74 +300,23 @@ func (r *Room) RemoveConn(playerID game.PlayerID) {
 	}
 }
 
-func (r *Room) startGame(debugMap bool) {
+func (r *Room) startGame() {
 	seed := cryptoRandSeed()
 	r.rng = mrand.New(mrand.NewPCG(seed, seed>>32))
 
-	if debugMap {
-		r.state.MapSize = game.DebugMapSize
-		r.state.Grid = game.BuildDebugMap()
-		slog.Info("debug map loaded", "roomId", r.state.RoomID, "size", game.DebugMapSize)
-	} else {
-		wallPct := randomWallPct(r.rng)
-		r.state.Grid = game.GenerateMap(r.state.MapSize, r.rng, wallPct, len(r.state.Players))
-		slog.Info("map generated", "roomId", r.state.RoomID, "wallPct", int(wallPct*100))
-	}
-
+	r.state.Grid = game.GenerateMap(r.state.MapSize, r.rng, 0.25, len(r.state.Players))
 	r.state.Phase = game.PhaseActive
 	r.state.Turn = 1
 	r.state.TurnDeadline = time.Now().Add(time.Duration(r.state.TurnSeconds) * time.Second)
 
-	if debugMap {
-		// Assign positions and turn order by name so tests are deterministic
-		// regardless of goroutine scheduling / join order races.
-		nameToID := make(map[string]game.PlayerID, len(r.state.Players))
-		for id, p := range r.state.Players {
-			nameToID[p.Name] = id
-		}
-		debugOrder := []string{"Alice", "Bot1", "Bot2"}
-		for _, name := range debugOrder {
-			id, ok := nameToID[name]
-			if !ok {
-				continue
-			}
-			p := r.state.Players[id]
-			r.state.TurnOrder = append(r.state.TurnOrder, id)
-			pos := game.DebugPositionByName(name)
-			p.Pos = pos
-			p.StartPos = pos
-			p.VisitedCells[pos] = true
-		}
-		// Any extra players not in debugOrder get a random position at the end.
-		for _, id := range r.joinOrder {
-			p := r.state.Players[id]
-			already := false
-			for _, tid := range r.state.TurnOrder {
-				if tid == id {
-					already = true
-					break
-				}
-			}
-			if already {
-				continue
-			}
-			r.state.TurnOrder = append(r.state.TurnOrder, id)
-			occupied := make(map[game.Position]bool)
-			pos := randomFreePos(r.state.Grid, r.state.MapSize, r.rng, occupied)
-			p.Pos = pos
-			p.StartPos = pos
-			p.VisitedCells[pos] = true
-		}
-	} else {
-		occupied := make(map[game.Position]bool)
-		for id, p := range r.state.Players {
-			r.state.TurnOrder = append(r.state.TurnOrder, id)
-			pos := randomFreePos(r.state.Grid, r.state.MapSize, r.rng, occupied)
-			occupied[pos] = true
-			p.Pos = pos
-			p.StartPos = pos
-			p.VisitedCells[pos] = true
-		}
+	occupied := make(map[game.Position]bool)
+	for id, p := range r.state.Players {
+		r.state.TurnOrder = append(r.state.TurnOrder, id)
+		pos := randomFreePos(r.state.Grid, r.state.MapSize, r.rng, occupied)
+		occupied[pos] = true
+		p.Pos = pos
+		p.StartPos = pos
+		p.VisitedCells[pos] = true
 	}
 
 	slog.Info("game started", "roomId", r.state.RoomID, "playerCount", len(r.state.Players))
@@ -394,10 +331,15 @@ func (r *Room) checkTurnDeadline() {
 	if r.state.Paused {
 		return
 	}
-	if time.Now().Before(r.state.TurnDeadline) {
+	currentTurn := r.state.TurnOrder[r.state.CurrentIdx%len(r.state.TurnOrder)]
+	_, isConnected := r.conns[currentTurn]
+
+	// Skip immediately if the player is disconnected (e.g. bot/dummy with no conn).
+	// Also skip once the wall-clock deadline is reached for connected players.
+	if isConnected && time.Now().Before(r.state.TurnDeadline) {
 		return
 	}
-	currentTurn := r.state.TurnOrder[r.state.CurrentIdx%len(r.state.TurnOrder)]
+
 	events := []protocol.Event{{
 		Kind:    protocol.EventTurnSkipped,
 		Payload: map[string]string{"playerId": string(currentTurn), "playerName": r.playerName(currentTurn)},
@@ -484,11 +426,6 @@ func (r *Room) sendWelcome(playerID game.PlayerID) {
 	welcome := protocol.WelcomeData{PlayerID: string(playerID), RoomState: lobby}
 	r.sendEnvelope(c, "welcome", welcome)
 
-	// Send existing chat history so the new client sees past messages.
-	if len(r.chatHistory) > 0 {
-		r.sendEnvelope(c, "chat_history", protocol.ChatHistoryData{Messages: r.chatHistory})
-	}
-
 	// On reconnect during active game, send current state
 	if r.state.Phase == game.PhaseActive {
 		view := protocol.BuildPlayerView(r.state, playerID, nil)
@@ -560,10 +497,109 @@ func errCode(err error) string {
 	return "ERROR"
 }
 
-// randomWallPct picks wall density biased toward 15–25%, occasionally 5–45%.
-func randomWallPct(rng *mrand.Rand) float64 {
-	if rng.Float64() < 0.80 {
-		return 0.15 + rng.Float64()*0.10 // common: 15–25%
+// SetupTestGame pre-registers players and the test grid in Lobby phase.
+// Call this before WebSocket clients connect; the game won't tick yet.
+// swap=true puts Bot1 at (0,0) with Bot1 going first.
+func (r *Room) SetupTestGame(swap bool) {
+	data := json.RawMessage(`{}`)
+	if swap {
+		data = json.RawMessage(`{"swap":true}`)
 	}
-	return 0.05 + rng.Float64()*0.40 // rare: 5–45%
+	select {
+	case r.inCh <- conn.IncomingMsg{
+		PlayerID: game.TestPlayerAliceID,
+		Envelope: protocol.Envelope{Type: "debug_test_setup", Ts: time.Now().UnixMilli(), Data: data},
+	}:
+	default:
+	}
+}
+
+// TriggerTestGame starts the already-setup test game (Lobby → Active).
+// Call this after WebSocket clients have connected so no turns are skipped.
+func (r *Room) TriggerTestGame(_ bool) {
+	select {
+	case r.inCh <- conn.IncomingMsg{
+		PlayerID: game.TestPlayerAliceID,
+		Envelope: protocol.Envelope{Type: "debug_test_start", Ts: time.Now().UnixMilli(), Data: json.RawMessage(`{}`)},
+	}:
+	default:
+	}
+}
+
+// handleTestSetup pre-registers players and the test grid, keeping phase = Lobby.
+func (r *Room) handleTestSetup(msg conn.IncomingMsg) {
+	if r.state.Phase != game.PhaseLobby {
+		return
+	}
+
+	var opts struct {
+		Swap bool `json:"swap"`
+	}
+	json.Unmarshal(msg.Envelope.Data, &opts) //nolint:errcheck
+
+	seed := cryptoRandSeed()
+	r.rng = mrand.New(mrand.NewPCG(seed, seed>>32))
+
+	r.state.MapSize = 4
+	r.state.TurnSeconds = 30
+	r.state.Grid = game.BuildTestMap4x4()
+	// Phase intentionally stays PhaseLobby — ticker won't skip real players yet.
+
+	mkPlayer := func(id game.PlayerID, name string, x, y int) *game.Player {
+		pos := game.Position{X: x, Y: y}
+		p := &game.Player{
+			ID:           id,
+			Name:         name,
+			Alive:        true,
+			Inventory:    []game.Item{},
+			MaxSubmit:    3,
+			VisitedCells: make(map[game.Position]bool),
+			ConnectedAt:  time.Now(),
+			LastSeen:     time.Now(),
+		}
+		p.Pos = pos
+		p.StartPos = pos
+		p.VisitedCells[pos] = true
+		return p
+	}
+
+	var alice, bot1 *game.Player
+	if opts.Swap {
+		alice = mkPlayer(game.TestPlayerAliceID, "Alice", 1, 3)
+		bot1 = mkPlayer(game.TestPlayerBotID, "Bot1", 0, 0)
+		r.state.TurnOrder = []game.PlayerID{game.TestPlayerBotID, game.TestPlayerAliceID, "dummy-bot2"}
+	} else {
+		alice = mkPlayer(game.TestPlayerAliceID, "Alice", 0, 0)
+		bot1 = mkPlayer(game.TestPlayerBotID, "Bot1", 1, 3)
+		r.state.TurnOrder = []game.PlayerID{game.TestPlayerAliceID, game.TestPlayerBotID, "dummy-bot2"}
+	}
+
+	r.state.Players[game.TestPlayerAliceID] = alice
+	r.state.Players[game.TestPlayerBotID] = bot1
+	r.hostID = game.TestPlayerAliceID
+
+	bot2 := game.BuildTestBot2NPC()
+	r.state.Players[bot2.ID] = bot2
+
+	slog.Info("test game set up (lobby)", "roomId", r.state.RoomID, "swap", opts.Swap)
+}
+
+// handleTestStart transitions the already-setup room from Lobby to Active and
+// broadcasts the initial game_start state to all currently connected clients.
+func (r *Room) handleTestStart() {
+	if r.state.Phase != game.PhaseLobby || r.state.Grid == nil {
+		return
+	}
+
+	r.state.Phase = game.PhaseActive
+	r.state.Turn = 1
+	r.state.TurnDeadline = time.Now().Add(time.Duration(r.state.TurnSeconds) * time.Second)
+	r.state.CurrentIdx = 0
+
+	for id, c := range r.conns {
+		view := protocol.BuildPlayerView(r.state, id, nil)
+		r.sendEnvelope(c, "game_start", view)
+	}
+
+	slog.Info("test game started", "roomId", r.state.RoomID)
 }

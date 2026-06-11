@@ -20,7 +20,26 @@
       "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); docker --version 2>&1)",
       "PowerShell(wsl --status 2>&1; wsl --list --verbose 2>&1)",
       "PowerShell(Get-WindowsOptionalFeature *)",
-      "PowerShell(gh auth *)"
+      "PowerShell(gh auth *)",
+      "Bash(go build *)",
+      "Read(//mnt/d/kotlin/mapTracker/**)",
+      "Bash(/usr/local/go/bin/go build *)",
+      "PowerShell(go build *)",
+      "PowerShell(Invoke-WebRequest -Uri \"https://maptracker-c68n.onrender.com/health\" -TimeoutSec 60 -UseBasicParsing | Select-Object StatusCode, Content)",
+      "PowerShell(Invoke-WebRequest -Uri \"https://maptracker-c68n.onrender.com/\" -TimeoutSec 60 -UseBasicParsing | Select-Object StatusCode, Content)",
+      "PowerShell(Invoke-WebRequest -Uri \"https://maptracker-c68n.onrender.com/\" -TimeoutSec 30 -UseBasicParsing 2>&1 | Select-Object StatusCode)",
+      "PowerShell(websocat *)",
+      "PowerShell(cd D:\\\\kotlin\\\\mapTracker; git merge-tree $\\(git merge-base HEAD origin/001-blind-map-survival\\) HEAD origin/001-blind-map-survival 2>&1 | Select-String \"CONFLICT\" | Select-Object -First 20)",
+      "PowerShell(cd D:\\\\kotlin\\\\mapTracker; Select-String -Path client/androidApp/src/main/kotlin/com/blindmap/android/ui/GameScreen.kt -Pattern \"delay|snackbarMsg|dismissTransient|transientError|errorMessage\" | ForEach-Object { \"$\\($_.LineNumber\\): $\\($_.Line.Trim\\(\\)\\)\" })",
+      "PowerShell(cd D:\\\\kotlin\\\\mapTracker; Select-String -Path client/shared/src/commonMain/kotlin/com/blindmap/protocol/Views.kt -Pattern \"fun description|Event.description\" | ForEach-Object { \"$\\($_.LineNumber\\): $\\($_.Line.Trim\\(\\)\\)\" })",
+      "Read(//usr/local/bin/**)",
+      "Bash(find /usr -name \"gh\")",
+      "PowerShell(Get-Command *)",
+      "PowerShell(Start-Process \"https://github.com/toannice/mapTracker/compare/master...001-blind-map-survival\")",
+      "Bash(go test *)",
+      "Bash(python3 -c ')",
+      "Bash(python3 *)",
+      "Bash(go vet *)"
     ]
   }
 }

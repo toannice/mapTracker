@@ -100,3 +100,12 @@ func (c *Conn) Send(data []byte) {
 func (c *Conn) Close() {
 	c.wsConn.CloseNow()
 }
+
+// PlayerID returns the current effective player ID for this connection.
+// It may be updated via SetPlayerID during a reconnect.
+func (c *Conn) PlayerID() game.PlayerID { return c.playerID }
+
+// SetPlayerID updates the player ID used by ReadPump when routing messages.
+// Must be called before ReadPump starts (i.e. from the room goroutine while
+// processing the join message, before the WS handler launches ReadPump).
+func (c *Conn) SetPlayerID(id game.PlayerID) { c.playerID = id }
