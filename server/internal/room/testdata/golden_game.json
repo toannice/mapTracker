@@ -1,0 +1,324 @@
+[
+  {
+    "turn": 1,
+    "playerId": "test-alice-000001",
+    "actionKind": "move",
+    "direction": "S",
+    "events": [
+      {
+        "kind": "player_moved",
+        "private": false,
+        "stableFields": {
+          "blockType": "info",
+          "kind": "player_moved",
+          "success": "true"
+        }
+      },
+      {
+        "kind": "clue_received",
+        "private": true,
+        "stableFields": {
+          "kind": "clue_received"
+        }
+      }
+    ],
+    "phase": "active",
+    "playerPos": {
+      "x": 0,
+      "y": 1
+    }
+  },
+  {
+    "turn": 2,
+    "playerId": "test-bot1-000001",
+    "actionKind": "move",
+    "direction": "W",
+    "events": [
+      {
+        "kind": "player_moved",
+        "private": false,
+        "stableFields": {
+          "blockType": "blank",
+          "kind": "player_moved",
+          "success": "true"
+        }
+      }
+    ],
+    "phase": "active",
+    "playerPos": {
+      "x": 0,
+      "y": 3
+    }
+  },
+  {
+    "turn": 3,
+    "playerId": "test-alice-000001",
+    "actionKind": "move",
+    "direction": "S",
+    "events": [
+      {
+        "kind": "player_moved",
+        "private": false,
+        "stableFields": {
+          "blockType": "info",
+          "kind": "player_moved",
+          "success": "true"
+        }
+      },
+      {
+        "kind": "clue_received",
+        "private": true,
+        "stableFields": {
+          "kind": "clue_received"
+        }
+      }
+    ],
+    "phase": "active",
+    "playerPos": {
+      "x": 0,
+      "y": 2
+    }
+  },
+  {
+    "turn": 4,
+    "playerId": "test-bot1-000001",
+    "actionKind": "move",
+    "direction": "E",
+    "events": [
+      {
+        "kind": "player_moved",
+        "private": false,
+        "stableFields": {
+          "blockType": "blank",
+          "kind": "player_moved",
+          "success": "true"
+        }
+      }
+    ],
+    "phase": "active",
+    "playerPos": {
+      "x": 1,
+      "y": 3
+    }
+  },
+  {
+    "turn": 5,
+    "playerId": "test-alice-000001",
+    "actionKind": "move",
+    "direction": "E",
+    "events": [
+      {
+        "kind": "player_moved",
+        "private": false,
+        "stableFields": {
+          "blockType": "info",
+          "kind": "player_moved",
+          "success": "true"
+        }
+      },
+      {
+        "kind": "clue_received",
+        "private": true,
+        "stableFields": {
+          "kind": "clue_received"
+        }
+      }
+    ],
+    "phase": "active",
+    "playerPos": {
+      "x": 1,
+      "y": 2
+    }
+  },
+  {
+    "turn": 6,
+    "playerId": "test-bot1-000001",
+    "actionKind": "move",
+    "direction": "E",
+    "events": [
+      {
+        "kind": "player_moved",
+        "private": false,
+        "stableFields": {
+          "blockType": "bullet",
+          "kind": "player_moved",
+          "success": "true"
+        }
+      }
+    ],
+    "phase": "active",
+    "playerPos": {
+      "x": 2,
+      "y": 3
+    }
+  },
+  {
+    "turn": 7,
+    "playerId": "test-alice-000001",
+    "actionKind": "move",
+    "direction": "N",
+    "events": [
+      {
+        "kind": "player_moved",
+        "private": false,
+        "stableFields": {
+          "blockType": "reward",
+          "kind": "player_moved",
+          "success": "true"
+        }
+      },
+      {
+        "kind": "reward_activated",
+        "private": false,
+        "stableFields": {
+          "effect": "all_positions_revealed",
+          "kind": "reward_activated"
+        }
+      }
+    ],
+    "phase": "active",
+    "playerPos": {
+      "x": 1,
+      "y": 1
+    }
+  },
+  {
+    "turn": 8,
+    "playerId": "test-bot1-000001",
+    "actionKind": "shoot",
+    "direction": "W",
+    "events": [
+      {
+        "kind": "shot_fired",
+        "private": false,
+        "stableFields": {
+          "kind": "shot_fired"
+        }
+      },
+      {
+        "kind": "player_eliminated",
+        "private": false,
+        "stableFields": {
+          "kind": "player_eliminated"
+        }
+      }
+    ],
+    "phase": "active",
+    "playerPos": {
+      "x": 2,
+      "y": 3
+    }
+  },
+  {
+    "turn": 9,
+    "playerId": "test-alice-000001",
+    "actionKind": "move",
+    "direction": "N",
+    "events": [
+      {
+        "kind": "player_moved",
+        "private": false,
+        "stableFields": {
+          "blockType": "trap",
+          "kind": "player_moved",
+          "success": "true"
+        }
+      },
+      {
+        "kind": "trap_triggered",
+        "private": false,
+        "stableFields": {
+          "effect": "random_teleport",
+          "kind": "trap_triggered"
+        }
+      }
+    ],
+    "phase": "active",
+    "playerPos": {
+      "x": 1,
+      "y": 1
+    }
+  },
+  {
+    "turn": 10,
+    "playerId": "test-bot1-000001",
+    "actionKind": "move",
+    "direction": "N",
+    "events": [
+      {
+        "kind": "player_moved",
+        "private": false,
+        "stableFields": {
+          "blockType": "blank",
+          "kind": "player_moved",
+          "success": "true"
+        }
+      }
+    ],
+    "phase": "active",
+    "playerPos": {
+      "x": 2,
+      "y": 2
+    }
+  },
+  {
+    "turn": 11,
+    "playerId": "test-alice-000001",
+    "actionKind": "move",
+    "direction": "N",
+    "events": [
+      {
+        "kind": "player_moved",
+        "private": false,
+        "stableFields": {
+          "blockType": "trap",
+          "kind": "player_moved",
+          "success": "true"
+        }
+      },
+      {
+        "kind": "trap_triggered",
+        "private": false,
+        "stableFields": {
+          "effect": "lose_next_turn",
+          "kind": "trap_triggered"
+        }
+      }
+    ],
+    "phase": "active",
+    "playerPos": {
+      "x": 1,
+      "y": 0
+    }
+  },
+  {
+    "turn": 12,
+    "playerId": "test-bot1-000001",
+    "actionKind": "move",
+    "direction": "N",
+    "events": [
+      {
+        "kind": "player_moved",
+        "private": false,
+        "stableFields": {
+          "blockType": "reward",
+          "kind": "player_moved",
+          "success": "true"
+        }
+      },
+      {
+        "kind": "reward_activated",
+        "private": false,
+        "stableFields": {
+          "effect": "nuke_pending",
+          "kind": "reward_activated"
+        }
+      }
+    ],
+    "phase": "active",
+    "playerPos": {
+      "x": 2,
+      "y": 1
+    }
+  }
+]

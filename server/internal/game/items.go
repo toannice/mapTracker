@@ -121,7 +121,7 @@ func ResolvePortal(state *GameState, p *Player, rng *rand.Rand) []GameEvent {
 				events := []GameEvent{{Kind: "portal_used", Payload: map[string]interface{}{
 					"dest": dest,
 				}}}
-				events = append(events, resolveCellEffects(state, p, rng, state.Grid[dest.Y][dest.X], 0)...)
+				events = append(events, resolveCellEffects(state, p, rng, state.Grid[dest.Y][dest.X], 1)...)
 				return events
 			}
 		}
@@ -149,6 +149,9 @@ func resolveCellEffects(state *GameState, p *Player, rng *rand.Rand, cell Cell, 
 		ev := ResolveInfo(state, p, rng)
 		return []GameEvent{ev}
 	case CellPortalA, CellPortalB:
+		if depth > 0 {
+			return nil // already inside a portal chain; one teleport per turn
+		}
 		return ResolvePortal(state, p, rng)
 	}
 	return nil
