@@ -40,9 +40,12 @@ func TestBuildPlayerViewNoPositionLeak(t *testing.T) {
 	// Alice's view must never reveal Bob's position
 	view := BuildPlayerView(state, aliceID, nil)
 
-	// Verify Alice sees herself correctly
-	if view.Self.Pos.X != 1 || view.Self.Pos.Y != 2 {
-		t.Errorf("Alice self pos: want (1,2), got (%d,%d)", view.Self.Pos.X, view.Self.Pos.Y)
+	// Verify Alice sees herself correctly (Pos is not exposed — design hides self position)
+	if view.Self.ID != aliceID {
+		t.Errorf("Alice self ID: want %s, got %s", aliceID, view.Self.ID)
+	}
+	if !view.Self.Alive {
+		t.Error("Alice should be alive")
 	}
 
 	// Verify OtherPlayerView for Bob has NO position field

@@ -33,6 +33,7 @@ func main() {
 	mux.HandleFunc("GET /healthz", healthHandler)
 	mux.HandleFunc("GET /ws", wsHandler(&cfg, h))
 	mux.HandleFunc("GET /debug/test-room", debugTestRoomHandler(h))
+	mux.HandleFunc("GET /debug/test-start", debugTestStartHandler(h))
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,
@@ -62,27 +63,51 @@ func main() {
 
 func debugTestRoomHandler(h *hub.Hub) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		rm, _, err := h.GetOrCreateRoom(game.TestRoomID)
+		swap := r.URL.Query().Get("mode") == "swap"
+		roomID := game.TestRoomID
+		if swap {
+			roomID = game.TestRoomID2
+		}
+
+		rm, _, err := h.GetOrCreateRoom(roomID)
 		if err != nil {
 			http.Error(w, "server full", http.StatusServiceUnavailable)
 			return
 		}
 
-		rm.TriggerTestGame(game.TestPlayerID, "Tester")
+		rm.SetupTestGame(swap)
 
 		scheme := "ws"
 		if r.TLS != nil {
 			scheme = "wss"
 		}
-		wsURL := fmt.Sprintf("%s://%s/ws?room=%s&name=Tester&playerId=%s",
-			scheme, r.Host, game.TestRoomID, game.TestPlayerID)
+		host := r.Host
+		mkWS := func(id game.PlayerID, name string) string {
+			return fmt.Sprintf("%s://%s/ws?room=%s&name=%s&playerId=%s",
+				scheme, host, roomID, name, id)
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{
-			"roomCode": string(game.TestRoomID),
-			"playerId": string(game.TestPlayerID),
-			"wsUrl":    wsURL,
+			"roomCode":   string(roomID),
+			"aliceId":    string(game.TestPlayerAliceID),
+			"aliceWsUrl": mkWS(game.TestPlayerAliceID, "Alice"),
+			"botId":      string(game.TestPlayerBotID),
+			"botWsUrl":   mkWS(game.TestPlayerBotID, "Bot1"),
 		})
+	}
+}
+
+func debugTestStartHandler(h *hub.Hub) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		roomCode := r.URL.Query().Get("room")
+		rm, ok := h.GetRoom(game.RoomID(roomCode))
+		if !ok {
+			http.Error(w, "room not found", http.StatusNotFound)
+			return
+		}
+		rm.TriggerTestGame(false)
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
