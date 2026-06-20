@@ -7,7 +7,17 @@ import (
 
 func ResolveReward(state *GameState, p *Player, rng *rand.Rand) []GameEvent {
 	// weights: effect0=20%, effect1(nuke)=40%, effect2=40%
-	effect := weightedRoll(rng, []int{20, 40, 40})
+	var effect int
+	switch state.Grid[p.Pos.Y][p.Pos.X].ForceEffect {
+	case "all_positions_revealed":
+		effect = 0
+	case "nuke_pending":
+		effect = 1
+	case "all_bullet_locations":
+		effect = 2
+	default:
+		effect = weightedRoll(rng, []int{20, 40, 40})
+	}
 	var events []GameEvent
 
 	switch effect {
@@ -46,11 +56,13 @@ func ResolveReward(state *GameState, p *Player, rng *rand.Rand) []GameEvent {
 		}})
 	}
 
-	// Move reward tile to a new random empty non-special position
+	// Move reward tile unless the cell is pinned for testing.
 	oldPos := p.Pos
-	newPos := randomEmptyCell(state.Grid, state.MapSize, rng)
-	state.Grid[oldPos.Y][oldPos.X] = Cell{Pos: oldPos, Kind: CellEmpty}
-	state.Grid[newPos.Y][newPos.X] = Cell{Pos: newPos, Kind: CellReward}
+	if state.Grid[oldPos.Y][oldPos.X].ForceEffect == "" {
+		newPos := randomEmptyCell(state.Grid, state.MapSize, rng)
+		state.Grid[oldPos.Y][oldPos.X] = Cell{Pos: oldPos, Kind: CellEmpty}
+		state.Grid[newPos.Y][newPos.X] = Cell{Pos: newPos, Kind: CellReward}
+	}
 
 	return events
 }
@@ -63,7 +75,21 @@ func ResolveTrap(state *GameState, p *Player, rng *rand.Rand) []GameEvent {
 //              3=lose_bullet 15%, 4=info_blackout 10%
 
 func resolveTrap(state *GameState, p *Player, rng *rand.Rand, depth int) []GameEvent {
-	effect := weightedRoll(rng, []int{15, 20, 40, 15, 10})
+	var effect int
+	switch state.Grid[p.Pos.Y][p.Pos.X].ForceEffect {
+	case "reveal_position":
+		effect = 0
+	case "random_teleport":
+		effect = 1
+	case "lose_next_turn":
+		effect = 2
+	case "lose_bullet":
+		effect = 3
+	case "info_blackout":
+		effect = 4
+	default:
+		effect = weightedRoll(rng, []int{15, 20, 40, 15, 10})
+	}
 	var events []GameEvent
 
 	switch effect {
@@ -72,7 +98,12 @@ func resolveTrap(state *GameState, p *Player, rng *rand.Rand, depth int) []GameE
 			"effect": "reveal_position", "playerId": string(p.ID), "playerName": p.Name, "pos": p.Pos,
 		}})
 	case 1: // random teleport — then trigger destination cell (but not another teleport trap)
-		newPos := randomEmptyCell(state.Grid, state.MapSize, rng)
+		var newPos Position
+		if fp := state.Grid[p.Pos.Y][p.Pos.X].ForcePos; fp != nil {
+			newPos = *fp
+		} else {
+			newPos = randomEmptyCell(state.Grid, state.MapSize, rng)
+		}
 		p.Pos = newPos
 		p.VisitedCells[newPos] = true
 		events = append(events, GameEvent{Kind: "trap_triggered", Payload: map[string]interface{}{
@@ -256,7 +287,19 @@ func ApplyNuke(state *GameState, shooter *Player, topX, topY int) []GameEvent {
 
 func ResolveInfo(state *GameState, p *Player, rng *rand.Rand) GameEvent {
 	// weights: clue0(nearest_dir)=40%, clue1=20%, clue2=20%, clue3=20%
-	clue := weightedRoll(rng, []int{40, 20, 20, 20})
+	var clue int
+	switch state.Grid[p.Pos.Y][p.Pos.X].ForceEffect {
+	case "nearest_direction":
+		clue = 0
+	case "own_start_pos":
+		clue = 1
+	case "other_player_pos":
+		clue = 2
+	case "surroundings_3x3":
+		clue = 3
+	default:
+		clue = weightedRoll(rng, []int{40, 20, 20, 20})
+	}
 	var ev GameEvent
 	switch clue {
 	case 0:
@@ -277,7 +320,11 @@ func ResolveInfo(state *GameState, p *Player, rng *rand.Rand) GameEvent {
 			}
 		}
 		if len(candidates) > 0 {
-			other := candidates[rng.IntN(len(candidates))]
+			idx := 0
+			if rng != nil && len(candidates) > 1 {
+				idx = rng.IntN(len(candidates))
+			}
+			other := candidates[idx]
 			ev = GameEvent{Kind: "clue_received", Payload: map[string]interface{}{
 				"type":       "other_player_pos",
 				"playerName": other.Name,

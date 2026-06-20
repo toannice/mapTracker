@@ -82,6 +82,10 @@ type Cell struct {
 	Pos      Position `json:"pos"`
 	Kind     CellKind `json:"kind"`
 	PortalID int      `json:"portalId,omitempty"`
+	// Test-only: non-empty overrides the random effect roll.
+	ForceEffect string    `json:"-"`
+	// Test-only: non-nil overrides the random teleport destination.
+	ForcePos    *Position `json:"-"`
 }
 
 type GameState struct {
