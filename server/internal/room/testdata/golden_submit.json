@@ -1,0 +1,45 @@
+[
+  {
+    "turn": 1,
+    "playerId": "test-alice-000001",
+    "actionKind": "submit_map",
+    "events": [
+      {
+        "kind": "map_submitted",
+        "private": false,
+        "stableFields": {
+          "correct": "false",
+          "kind": "map_submitted",
+          "submitsLeft": "2",
+          "wrong": "2"
+        }
+      }
+    ],
+    "phase": "active",
+    "playerPos": {
+      "x": 0,
+      "y": 0
+    }
+  },
+  {
+    "turn": 2,
+    "playerId": "test-alice-000001",
+    "actionKind": "submit_map",
+    "events": [
+      {
+        "kind": "map_submitted",
+        "private": false,
+        "stableFields": {
+          "correct": "true",
+          "kind": "map_submitted",
+          "wrong": "0"
+        }
+      }
+    ],
+    "phase": "ended",
+    "playerPos": {
+      "x": 0,
+      "y": 0
+    }
+  }
+]

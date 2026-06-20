@@ -1,0 +1,156 @@
+[
+  {
+    "turn": 1,
+    "playerId": "test-alice-000001",
+    "actionKind": "shoot",
+    "direction": "W",
+    "events": [
+      {
+        "kind": "shot_fired",
+        "private": false,
+        "stableFields": {
+          "kind": "shot_fired"
+        }
+      },
+      {
+        "kind": "player_eliminated",
+        "private": false,
+        "stableFields": {
+          "kind": "player_eliminated"
+        }
+      }
+    ],
+    "views": {
+      "Alice": [
+        {
+          "kind": "shot_fired",
+          "private": false,
+          "stableFields": {
+            "kind": "shot_fired"
+          }
+        },
+        {
+          "kind": "player_eliminated",
+          "private": false,
+          "stableFields": {
+            "kind": "player_eliminated"
+          }
+        }
+      ],
+      "Bot2": [
+        {
+          "kind": "shot_fired",
+          "private": false,
+          "stableFields": {
+            "kind": "shot_fired"
+          }
+        },
+        {
+          "kind": "player_eliminated",
+          "private": false,
+          "stableFields": {
+            "kind": "player_eliminated"
+          }
+        }
+      ],
+      "Bot3": [
+        {
+          "kind": "shot_fired",
+          "private": false,
+          "stableFields": {
+            "kind": "shot_fired"
+          }
+        },
+        {
+          "kind": "player_eliminated",
+          "private": false,
+          "stableFields": {
+            "kind": "player_eliminated"
+          }
+        }
+      ]
+    },
+    "phase": "active",
+    "playerPos": {
+      "x": 1,
+      "y": 1
+    }
+  },
+  {
+    "turn": 2,
+    "playerId": "test-alice-000001",
+    "actionKind": "shoot",
+    "direction": "S",
+    "events": [
+      {
+        "kind": "shot_fired",
+        "private": false,
+        "stableFields": {
+          "kind": "shot_fired"
+        }
+      },
+      {
+        "kind": "player_eliminated",
+        "private": false,
+        "stableFields": {
+          "kind": "player_eliminated"
+        }
+      }
+    ],
+    "views": {
+      "Alice": [
+        {
+          "kind": "shot_fired",
+          "private": false,
+          "stableFields": {
+            "kind": "shot_fired"
+          }
+        },
+        {
+          "kind": "player_eliminated",
+          "private": false,
+          "stableFields": {
+            "kind": "player_eliminated"
+          }
+        }
+      ],
+      "Bot2": [
+        {
+          "kind": "shot_fired",
+          "private": false,
+          "stableFields": {
+            "kind": "shot_fired"
+          }
+        },
+        {
+          "kind": "player_eliminated",
+          "private": false,
+          "stableFields": {
+            "kind": "player_eliminated"
+          }
+        }
+      ],
+      "Bot3": [
+        {
+          "kind": "shot_fired",
+          "private": false,
+          "stableFields": {
+            "kind": "shot_fired"
+          }
+        },
+        {
+          "kind": "player_eliminated",
+          "private": false,
+          "stableFields": {
+            "kind": "player_eliminated"
+          }
+        }
+      ]
+    },
+    "phase": "ended",
+    "playerPos": {
+      "x": 1,
+      "y": 1
+    }
+  }
+]

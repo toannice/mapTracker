@@ -17,7 +17,7 @@ const TestPlayerBotID   PlayerID = "test-bot1-000001"
 //	Y=0  [Alice]       trap:reveal_pos      trap:lose_bullet       trap:lose_next_turn
 //	Y=1  info:own_start reward:all_pos_rev  reward:all_bullets     reward:nuke_pending
 //	Y=2  info:other_pos info:surroundings   trap:info_blackout     trap:teleport→(2,3)
-//	Y=3  [Bot2 NPC]    empty                empty                  empty
+//	Y=3  [Bot2 NPC]    empty                empty                  wall
 //
 // Golden-replay path (Alice solo, 15 moves):
 //
@@ -55,7 +55,9 @@ func BuildTestMap4x4() [][]Cell {
 	set(2, 2, CellTrap,   "info_blackout", nil)
 	set(3, 2, CellTrap,   "random_teleport", dest23)
 
-	// Row 3 — all empty (Bot2 NPC placed separately by test)
+	// Row 3 — wall at (3,3) gives submit_map a real target; rest empty.
+	// Bot2 NPC at (0,3) placed separately by the test.
+	set(3, 3, CellWall, "", nil)
 	return grid
 }
 
