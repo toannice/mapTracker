@@ -122,6 +122,130 @@ func assertInvariants(t *testing.T, state *game.GameState, events []protocol.Eve
 			}
 		}
 	}
+
+	// ── name → player index for elimination cross-checks ──────────────────────
+	byName := make(map[string]*game.Player, len(state.Players))
+	for _, p := range state.Players {
+		byName[p.Name] = p
+	}
+
+	// 9. map_submitted invariants.
+	for _, e := range events {
+		if e.Kind != protocol.EventMapSubmitted {
+			continue
+		}
+		m, ok := e.Payload.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		correct, _ := m["correct"].(bool)
+		wrong, _ := m["wrong"].(int)
+		if correct {
+			// A correct submission must immediately end the game as map_complete.
+			if state.Phase != game.PhaseEnded {
+				t.Errorf("%s: correct map_submitted but phase=%s (not ended)", label, state.Phase)
+			}
+			if state.WinReason != "map_complete" {
+				t.Errorf("%s: correct map_submitted but WinReason=%q (want map_complete)", label, state.WinReason)
+			}
+			if wrong != 0 {
+				t.Errorf("%s: correct map_submitted but wrong=%d (want 0)", label, wrong)
+			}
+		} else {
+			// A wrong submission must report ≥1 mismatched cell and a non-negative
+			// remaining-attempt count.
+			if wrong < 1 {
+				t.Errorf("%s: wrong map_submitted but wrong=%d (want ≥1)", label, wrong)
+			}
+			if sl, has := m["submitsLeft"].(int); has && sl < 0 {
+				t.Errorf("%s: map_submitted submitsLeft=%d (negative)", label, sl)
+			}
+		}
+	}
+
+	// 10. nuke_fired invariants: the blast square stays fully inside the map and
+	//     its side equals the map-size-derived nuke size. Every named victim is
+	//     actually dead.
+	for _, e := range events {
+		if e.Kind != protocol.EventNukeFired {
+			continue
+		}
+		m, ok := e.Payload.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		topX, _ := m["topX"].(int)
+		topY, _ := m["topY"].(int)
+		side, _ := m["side"].(int)
+		if side < 1 {
+			t.Errorf("%s: nuke side=%d (want ≥1)", label, side)
+		}
+		if topX < 0 || topY < 0 || topX+side > state.MapSize || topY+side > state.MapSize {
+			t.Errorf("%s: nuke square top=(%d,%d) side=%d escapes map size %d", label, topX, topY, side, state.MapSize)
+		}
+		if elim, ok2 := m["eliminated"].([]string); ok2 {
+			for _, name := range elim {
+				if victim, has := byName[name]; has && victim.Alive {
+					t.Errorf("%s: nuke lists %q as eliminated but player still alive", label, name)
+				}
+			}
+		}
+	}
+
+	// 11. player_eliminated → the named player must actually be dead in state.
+	for _, e := range events {
+		if e.Kind != protocol.EventPlayerEliminated {
+			continue
+		}
+		if m, ok := e.Payload.(map[string]string); ok {
+			if victim, has := byName[m["playerName"]]; has && victim.Alive {
+				t.Errorf("%s: player_eliminated for %q but player still alive", label, m["playerName"])
+			}
+		}
+	}
+
+	// 12. portal_used → destination must be in-bounds and never a wall.
+	for _, e := range events {
+		if e.Kind != protocol.EventPortalUsed {
+			continue
+		}
+		m, ok := e.Payload.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		dest, ok2 := m["dest"].(game.Position)
+		if !ok2 {
+			continue
+		}
+		if dest.X < 0 || dest.X >= state.MapSize || dest.Y < 0 || dest.Y >= state.MapSize {
+			t.Errorf("%s: portal dest %+v out of bounds", label, dest)
+		} else if state.Grid[dest.Y][dest.X].Kind == game.CellWall {
+			t.Errorf("%s: portal dest %+v is a wall", label, dest)
+		}
+	}
+
+	// 13. End-state consistency: a last_alive win means exactly one survivor.
+	if state.Phase == game.PhaseEnded && state.WinReason == "last_alive" {
+		alive := 0
+		for _, p := range state.Players {
+			if p.Alive {
+				alive++
+			}
+		}
+		if alive != 1 {
+			t.Errorf("%s: last_alive win but %d players alive (want 1)", label, alive)
+		}
+	}
+
+	// 14. A declared winner must reference a real, and (for last_alive) living, player.
+	if state.Phase == game.PhaseEnded && state.Winner != nil {
+		w, has := state.Players[*state.Winner]
+		if !has {
+			t.Errorf("%s: winner %s not in player set", label, *state.Winner)
+		} else if state.WinReason == "last_alive" && !w.Alive {
+			t.Errorf("%s: last_alive winner %s is dead", label, *state.Winner)
+		}
+	}
 }
 
 // ── random game builder ───────────────────────────────────────────────────────
@@ -282,6 +406,53 @@ func TestPropertyMaxSubmitOnlyDecreases(t *testing.T) {
 			}
 			prev[id] = after
 		}
+	}
+}
+
+// TestPropertySubmitCorrectWins feeds each game its true wall set and asserts
+// the submission wins (map_complete) and trips the end-state invariants. This
+// exercises invariant 9's correct-path, which the move/shoot games never reach.
+func TestPropertySubmitCorrectWins(t *testing.T) {
+	const games = 200
+	for g := 0; g < games; g++ {
+		seed := uint64(g)*0x100000001b3 + 11
+		rng := rand.New(rand.NewPCG(seed, seed^0xa5a5a5a5))
+		state := buildPropertyState(rng, 8+rng.IntN(9), 2+rng.IntN(3))
+
+		// Collect the real wall positions.
+		var walls []game.Position
+		for y, row := range state.Grid {
+			for x, cell := range row {
+				if cell.Kind == game.CellWall {
+					walls = append(walls, game.Position{X: x, Y: y})
+				}
+			}
+		}
+
+		// Pick the first alive player as the submitter.
+		var submitter *game.Player
+		for _, id := range state.TurnOrder {
+			if p := state.Players[id]; p.Alive {
+				submitter = p
+				break
+			}
+		}
+		if submitter == nil {
+			continue
+		}
+
+		events, err := applySubmitMap(state, submitter, walls)
+		label := fmt.Sprintf("game=%d submit-correct", g)
+		if err != nil {
+			t.Fatalf("%s: unexpected error: %v", label, err)
+		}
+		if state.Phase != game.PhaseEnded || state.WinReason != "map_complete" {
+			t.Fatalf("%s: correct submit did not win: phase=%s reason=%q", label, state.Phase, state.WinReason)
+		}
+		if state.Winner == nil || *state.Winner != submitter.ID {
+			t.Fatalf("%s: winner not set to submitter", label)
+		}
+		assertInvariants(t, state, events, label)
 	}
 }
 
