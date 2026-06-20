@@ -84,8 +84,11 @@ go run ./cmd/server
 # Build production binary
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o out/server ./cmd/server
 
-# Run tests (with race detector)
-go test -race -timeout 60s ./...
+# Run tests (with race detector) — only internal/room has tests
+go test -race -timeout 60s ./internal/room/...
+
+# Update golden snapshot after intentional logic change
+rm internal/room/testdata/golden_game.json && go test ./internal/room/ -run TestGoldenGameReplay
 
 # Vet
 go vet ./...
@@ -168,6 +171,22 @@ Applied to both `play.ps1` (terminal) and Android:
   `play.ps1`: stored as `blindmap_session.json` next to the script; offered on next launch.
   Android: stored in `SharedPreferences`; a Rejoin card appears on the lobby screen.
   If the server rejects the rejoin (`GAME_IN_PROGRESS`), the session is cleared and the user is prompted to start fresh.
+
+## Test Strategy (settled 2026-06-21)
+
+Only `server/internal/room/` has tests. **Do not add unit tests** — they were
+deleted as redundant. All new test work goes into one of two suites:
+
+**Golden replay** (`replay_test.go` + `testdata/golden_game.json`):
+- 12-turn scripted game on `BuildTestMap4x4` (PCG seed 42)
+- Detects unintended logic changes across releases
+- To accept intentional changes: delete `testdata/golden_game.json`, re-run
+  `TestGoldenGameReplay`, commit the new JSON
+
+**Property-based** (`property_test.go`):
+- 500–1000 random games per test, checks invariants after every action
+- On failure prints the RNG seed so the exact game can be reproduced
+- Add new invariants here when adding new game mechanics
 
 ### Upgrade backlog (Phase 3+)
 
