@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/your-org/blindmap/internal/bot"
 	"github.com/your-org/blindmap/internal/config"
 	"github.com/your-org/blindmap/internal/conn"
 	"github.com/your-org/blindmap/internal/game"
@@ -26,6 +27,8 @@ type Room struct {
 	rng         *mrand.Rand
 	chatHistory []protocol.ChatMsgData
 	joinOrder   []game.PlayerID // tracks join order for debug-map position assignment
+	bots        map[game.PlayerID]*bot.Bot
+	botSeq      int
 }
 
 func NewRoom(id game.RoomID, cfg *config.Config, onDelete func(game.RoomID)) *Room {
@@ -41,6 +44,7 @@ func NewRoom(id game.RoomID, cfg *config.Config, onDelete func(game.RoomID)) *Ro
 		inCh:     make(chan conn.IncomingMsg, 128),
 		cfg:      cfg,
 		onDelete: onDelete,
+		bots:     make(map[game.PlayerID]*bot.Bot),
 	}
 }
 
@@ -76,6 +80,8 @@ func (r *Room) handleMessage(ctx context.Context, msg conn.IncomingMsg) {
 		r.handlePing(msg)
 	case "leave":
 		r.disconnect(msg.PlayerID)
+	case "bot_act":
+		r.handleBotAct(ctx, msg)
 	}
 }
 
@@ -136,6 +142,16 @@ func (r *Room) handleAction(ctx context.Context, msg conn.IncomingMsg) {
 		return
 	}
 
+	// add_bot / remove_bot are lobby-phase actions from the host
+	if data.Kind == protocol.ActionAddBot {
+		r.handleAddBot(msg, &data)
+		return
+	}
+	if data.Kind == protocol.ActionRemoveBot {
+		r.handleRemoveBot(msg, &data)
+		return
+	}
+
 	// start_game is a lobby-phase action from the host
 	if string(data.Kind) == "start_game" {
 		if msg.PlayerID == r.hostID && r.state.Phase == game.PhaseLobby && len(r.state.Players) >= 1 {
@@ -145,7 +161,7 @@ func (r *Room) handleAction(ctx context.Context, msg conn.IncomingMsg) {
 			if data.TurnSeconds >= 10 && data.TurnSeconds <= 120 {
 				r.state.TurnSeconds = data.TurnSeconds
 			}
-			r.startGame(data.DebugMap)
+			r.startGame(data.DebugMap, data.ControlMap, data.ControlScenario)
 		}
 		return
 	}
@@ -171,6 +187,7 @@ func (r *Room) handleAction(ctx context.Context, msg conn.IncomingMsg) {
 			r.state.Paused = false
 			r.state.TurnDeadline = time.Now().Add(time.Duration(r.state.PauseRemainingMs) * time.Millisecond)
 			r.broadcastTurnResult(nil)
+			r.scheduleBotAct()
 		}
 		return
 	}
@@ -276,10 +293,25 @@ func (r *Room) disconnect(playerID game.PlayerID) {
 	if r.state.Phase == game.PhaseLobby {
 		delete(r.state.Players, playerID)
 		if playerID == r.hostID {
-			for id := range r.state.Players {
-				r.hostID = id
+			r.hostID = ""
+			for id, pl := range r.state.Players {
+				if !pl.IsBot { // bots can never be host
+					r.hostID = id
+					break
+				}
+			}
+		}
+		// A lobby with no humans left (only bots, or empty) is dead — tear it down.
+		hasHuman := false
+		for _, pl := range r.state.Players {
+			if !pl.IsBot {
+				hasHuman = true
 				break
 			}
+		}
+		if !hasHuman {
+			r.onDelete(r.state.RoomID)
+			return
 		}
 		r.broadcastLobbyUpdate()
 		return
@@ -287,13 +319,9 @@ func (r *Room) disconnect(playerID game.PlayerID) {
 
 	slog.Info("player disconnected", "roomId", r.state.RoomID, "playerName", p.Name)
 
-	// If all alive players are disconnected, game over (draw)
-	for id, p2 := range r.state.Players {
-		if p2.Alive {
-			if _, connected := r.conns[id]; connected {
-				return
-			}
-		}
+	// Draw when nobody can meaningfully keep playing (see gameCanContinue).
+	if r.gameCanContinue() {
+		return
 	}
 	r.state.Phase = game.PhaseEnded
 	r.state.WinReason = "draw"
@@ -312,15 +340,74 @@ func (r *Room) RemoveConn(playerID game.PlayerID) {
 	}
 }
 
-func (r *Room) startGame(debugMap bool) {
+func (r *Room) startGame(debugMap bool, controlMap bool, controlScenario int) {
 	seed := cryptoRandSeed()
 	r.rng = mrand.New(mrand.NewPCG(seed, seed>>32))
 
-	if debugMap {
+	switch {
+	case controlMap:
+		scenario := controlScenario
+		if scenario < 1 || scenario > 2 {
+			scenario = 1
+		}
+		r.state.MapSize = game.ControlMapSize
+		r.state.Grid = game.BuildControlMap()
+		slog.Info("control map loaded", "roomId", r.state.RoomID, "scenario", scenario)
+
+		r.state.Phase = game.PhaseActive
+		r.state.Turn = 1
+		r.state.TurnDeadline = time.Now().Add(time.Duration(r.state.TurnSeconds) * time.Second)
+
+		nameToID := make(map[string]game.PlayerID, len(r.state.Players))
+		for id, p := range r.state.Players {
+			nameToID[p.Name] = id
+		}
+		controlOrder := []string{"Me", "Bot1", "Bot2"}
+		for _, name := range controlOrder {
+			id, ok := nameToID[name]
+			if !ok {
+				continue
+			}
+			p := r.state.Players[id]
+			r.state.TurnOrder = append(r.state.TurnOrder, id)
+			pos := game.ControlPositionByName(name, scenario)
+			p.Pos = pos
+			p.StartPos = pos
+			p.VisitedCells[pos] = true
+		}
+		for _, id := range r.joinOrder {
+			already := false
+			for _, tid := range r.state.TurnOrder {
+				if tid == id {
+					already = true
+					break
+				}
+			}
+			if already {
+				continue
+			}
+			p := r.state.Players[id]
+			r.state.TurnOrder = append(r.state.TurnOrder, id)
+			occupied := make(map[game.Position]bool)
+			pos := randomFreePos(r.state.Grid, r.state.MapSize, r.rng, occupied)
+			p.Pos = pos
+			p.StartPos = pos
+			p.VisitedCells[pos] = true
+		}
+		slog.Info("game started", "roomId", r.state.RoomID, "playerCount", len(r.state.Players))
+		for id, c := range r.conns {
+			view := protocol.BuildPlayerView(r.state, id, nil)
+			r.sendEnvelope(c, "game_start", view)
+		}
+		r.feedBots(nil)
+		r.scheduleBotAct()
+		return
+
+	case debugMap:
 		r.state.MapSize = game.DebugMapSize
 		r.state.Grid = game.BuildDebugMap()
 		slog.Info("debug map loaded", "roomId", r.state.RoomID, "size", game.DebugMapSize)
-	} else {
+	default:
 		wallPct := randomWallPct(r.rng)
 		r.state.Grid = game.GenerateMap(r.state.MapSize, r.rng, wallPct, len(r.state.Players))
 		slog.Info("map generated", "roomId", r.state.RoomID, "wallPct", int(wallPct*100))
@@ -388,6 +475,8 @@ func (r *Room) startGame(debugMap bool) {
 		view := protocol.BuildPlayerView(r.state, id, nil)
 		r.sendEnvelope(c, "game_start", view)
 	}
+	r.feedBots(nil)
+	r.scheduleBotAct()
 }
 
 func (r *Room) checkTurnDeadline() {
@@ -399,8 +488,12 @@ func (r *Room) checkTurnDeadline() {
 	}
 	currentTurn := r.state.TurnOrder[r.state.CurrentIdx%len(r.state.TurnOrder)]
 	events := []protocol.Event{{
-		Kind:    protocol.EventTurnSkipped,
-		Payload: map[string]string{"playerId": string(currentTurn), "playerName": r.playerName(currentTurn)},
+		Kind: protocol.EventTurnSkipped,
+		Payload: map[string]string{
+			"playerId":   string(currentTurn),
+			"playerName": r.playerName(currentTurn),
+			"reason":     "timeout",
+		},
 	}}
 	r.advanceTurnIndex()
 	r.broadcastTurnResult(events)
@@ -419,12 +512,20 @@ func (r *Room) advanceTurnIndex() {
 		}
 		if p.SkipNextTurn {
 			p.SkipNextTurn = false
-			evs := []protocol.Event{{Kind: protocol.EventTurnSkipped, Payload: map[string]string{"playerId": string(next), "playerName": r.playerName(next)}}}
+			evs := []protocol.Event{{
+				Kind: protocol.EventTurnSkipped,
+				Payload: map[string]string{
+					"playerId":   string(next),
+					"playerName": r.playerName(next),
+					"reason":     "trap_effect",
+				},
+			}}
 			r.broadcastTurnResult(evs)
 			continue
 		}
 		break
 	}
+	r.scheduleBotAct()
 }
 
 func (r *Room) broadcastTurnResult(events []protocol.Event) {
@@ -435,6 +536,7 @@ func (r *Room) broadcastTurnResult(events []protocol.Event) {
 		view := protocol.BuildPlayerView(r.state, id, events)
 		r.sendEnvelope(c, "turn_result", view)
 	}
+	r.feedBots(events)
 }
 
 func (r *Room) broadcastGameOver() {

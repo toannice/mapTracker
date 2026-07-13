@@ -9,8 +9,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeContentPadding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -47,18 +47,34 @@ fun LobbyScreen(vm: GameViewModel, serverUrl: String, onNavigateToGame: () -> Un
     var roomCode by remember { mutableStateOf("") }
     var mapSize by remember { mutableIntStateOf(10) }
     var turnSeconds by remember { mutableIntStateOf(30) }
+    var serverUrlInput by remember { mutableStateOf(serverUrl) }
 
     LaunchedEffect(state.phase) {
         if (state.phase == GamePhase.Active) onNavigateToGame()
     }
 
     Column(
-        modifier = Modifier.fillMaxSize().safeContentPadding().imePadding().padding(horizontal = 24.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .safeContentPadding()
+            .imePadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text("Blind Map Survival", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(24.dp))
+
+        OutlinedTextField(
+            value = serverUrlInput,
+            onValueChange = { serverUrlInput = it.trim() },
+            label = { Text("Server (ws://ip:8080/ws)") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            textStyle = MaterialTheme.typography.bodySmall
+        )
+        Spacer(Modifier.height(12.dp))
 
         OutlinedTextField(
             value = playerName,
@@ -81,15 +97,15 @@ fun LobbyScreen(vm: GameViewModel, serverUrl: String, onNavigateToGame: () -> Un
                 onClick = {
                     val code = generateRoomCode()
                     roomCode = code
-                    vm.connect(serverUrl, code, playerName)
+                    vm.connect(serverUrlInput, code, playerName)
                 },
-                enabled = playerName.isNotBlank(),
+                enabled = playerName.isNotBlank() && serverUrlInput.isNotBlank(),
                 modifier = Modifier.weight(1f)
             ) { Text("Create Room") }
 
             OutlinedButton(
-                onClick = { vm.connect(serverUrl, roomCode, playerName) },
-                enabled = playerName.isNotBlank() && roomCode.length == 6,
+                onClick = { vm.connect(serverUrlInput, roomCode, playerName) },
+                enabled = playerName.isNotBlank() && roomCode.length == 6 && serverUrlInput.isNotBlank(),
                 modifier = Modifier.weight(1f)
             ) { Text("Join Room") }
         }
@@ -100,8 +116,8 @@ fun LobbyScreen(vm: GameViewModel, serverUrl: String, onNavigateToGame: () -> Un
         if (players.isNotEmpty()) {
             Text("Players (${players.size}/8)", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
-            LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                items(players) { name ->
+            Column(modifier = Modifier.fillMaxWidth()) {
+                players.forEach { name ->
                     Text("• $name", modifier = Modifier.padding(vertical = 2.dp))
                 }
             }
@@ -127,6 +143,28 @@ fun LobbyScreen(vm: GameViewModel, serverUrl: String, onNavigateToGame: () -> Un
                     steps = 109,
                     modifier = Modifier.fillMaxWidth()
                 )
+                Spacer(Modifier.height(8.dp))
+                Text("Bots", style = MaterialTheme.typography.bodySmall)
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = { vm.sendAddBot("easy") },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("+Easy") }
+                    OutlinedButton(
+                        onClick = { vm.sendAddBot("medium") },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("+Med") }
+                    OutlinedButton(
+                        onClick = { vm.sendAddBot("hard") },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("+Hard") }
+                    if (players.any { it.startsWith("Bot") }) {
+                        OutlinedButton(
+                            onClick = { vm.sendRemoveBot() },
+                            modifier = Modifier.weight(0.6f)
+                        ) { Text("−Bot") }
+                    }
+                }
                 Spacer(Modifier.height(12.dp))
                 Button(
                     onClick = { vm.sendStartGame(mapSize, turnSeconds) },

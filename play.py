@@ -108,7 +108,6 @@ def fmt_event(ev):
             "random_teleport": "trap - random teleport",
             "lose_next_turn":  "trap - lose next turn",
             "lose_bullet":     "trap - lost bullet",
-            "info_blackout":   "trap - info blackout",
         }.get(eff, f"trap - {eff}")
 
     if kind == "reward_activated":
@@ -151,18 +150,13 @@ def fmt_event(ev):
         dest = p.get("dest", {})
         return f"portal - teleported → ({dest.get('x','?')},{dest.get('y','?')})"
 
-    if kind == "turn_skipped":  return f"{p.get('playerName','?')} - turn skipped"
-
-    if kind == "info_cell":
-        name = p.get("playerName", "?")
-        rev  = p.get("revealed", "")
-        if rev == "surroundings":
-            return f"{name} - stepped on Info. 3x3 surroundings."
-        if rev == "player_position":
-            return f"{name} - stepped on Info. {p.get('targetName','?')} positions reveal."
-        if rev == "start_position":
-            return f"{name} - stepped on Info. {name}'s start positions reveal."
-        return f"{name} - stepped on Info."
+    if kind == "you_were_eliminated":
+        by = p.get("byPlayerName")
+        return f"YOU were eliminated by {by}" if by else "YOU were eliminated"
+    if kind == "turn_skipped":
+        reason = p.get("reason", "")
+        suffix = " (timeout)" if reason == "timeout" else " (trap)" if reason == "trap_effect" else ""
+        return f"{p.get('playerName','?')} - turn skipped{suffix}"
 
     if kind == "info_revealed":
         itype = p.get("type", "")
@@ -397,6 +391,18 @@ async def run(url, name, room, map_size_arg, turn_secs):
                 await ws.send(action({"kind": "move", "direction": "E"}))
             elif upper == "G":
                 await ws.send(action({"kind": "start_game", "mapSize": map_size_arg, "turnSeconds": turn_secs}))
+            elif upper == "B":
+                lvl = await loop.run_in_executor(
+                    None, readline_input, "Bot (easy/medium/hard, 'remove' drops last, Enter=medium): "
+                )
+                lvl = (lvl or "").strip().lower() or "medium"
+                if lvl in ("remove", "r"):
+                    await ws.send(action({"kind": "remove_bot"}))
+                elif lvl in ("easy", "medium", "hard", "e", "m", "h"):
+                    full = {"e": "easy", "m": "medium", "h": "hard"}.get(lvl, lvl)
+                    await ws.send(action({"kind": "add_bot", "difficulty": full}))
+                else:
+                    print("(unknown bot difficulty)")
             elif upper == "F":
                 shoot_mode = True
                 print("Shoot direction: W/A/S/D")
@@ -513,6 +519,7 @@ def main():
     print("Controls:")
     print("  W/A/S/D or Arrow keys = Move")
     print("  G                     = Start game (host only)")
+    print("  B                     = Add/remove bot (host, in lobby)")
     print("  M                     = Paint map / submit")
     print("  F then W/A/S/D        = Shoot")
     print("  N                     = Map info (cell counts)")

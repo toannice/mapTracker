@@ -26,7 +26,9 @@ data class ActionData(
     @SerialName("itemId") val itemId: String? = null,
     val walls: List<Position>? = null,
     val mapSize: Int? = null,
-    val turnSeconds: Int? = null
+    val turnSeconds: Int? = null,
+    val difficulty: String? = null,
+    @SerialName("botId") val botId: String? = null
 )
 
 @Serializable

@@ -28,16 +28,22 @@ const (
 	ActionPause     ActionKind = "pause"
 	ActionResume    ActionKind = "resume"
 	ActionPass      ActionKind = "pass" // bot/test: skip turn without waiting for timer
+	ActionAddBot    ActionKind = "add_bot"    // lobby, host only
+	ActionRemoveBot ActionKind = "remove_bot" // lobby, host only
 )
 
 type ActionData struct {
-	Kind        ActionKind      `json:"kind"`
-	Direction   string          `json:"direction,omitempty"`
-	ItemID      string          `json:"itemId,omitempty"`
-	Walls       []game.Position `json:"walls,omitempty"`
-	MapSize     int             `json:"mapSize,omitempty"`
-	TurnSeconds int             `json:"turnSeconds,omitempty"`
-	DebugMap    bool            `json:"debugMap,omitempty"`
+	Kind            ActionKind      `json:"kind"`
+	Direction       string          `json:"direction,omitempty"`
+	ItemID          string          `json:"itemId,omitempty"`
+	Walls           []game.Position `json:"walls,omitempty"`
+	MapSize         int             `json:"mapSize,omitempty"`
+	TurnSeconds     int             `json:"turnSeconds,omitempty"`
+	DebugMap        bool            `json:"debugMap,omitempty"`
+	ControlMap      bool            `json:"controlMap,omitempty"`
+	ControlScenario int             `json:"controlScenario,omitempty"`
+	Difficulty      string          `json:"difficulty,omitempty"` // add_bot: easy|medium|hard
+	BotID           string          `json:"botId,omitempty"`      // remove_bot: id or name; empty = last added
 }
 
 type EventKind string
@@ -47,16 +53,18 @@ const (
 	EventTrapTriggered    EventKind = "trap_triggered"
 	EventRewardActivated  EventKind = "reward_activated"
 	EventPlayerEliminated EventKind = "player_eliminated"
+	EventYouEliminated    EventKind = "you_were_eliminated"
 	EventShotFired        EventKind = "shot_fired"
 	EventMapSubmitted     EventKind = "map_submitted"
 	EventPortalUsed       EventKind = "portal_used"
-	EventClueReceived     EventKind = "clue_received"
 	EventTurnSkipped      EventKind = "turn_skipped"
+	EventInfoRevealed     EventKind = "info_revealed"
 )
 
 type Event struct {
-	Kind    EventKind   `json:"kind"`
-	Payload interface{} `json:"payload,omitempty"`
+	Kind        EventKind     `json:"kind"`
+	Payload     interface{}   `json:"payload,omitempty"`
+	ForPlayerID game.PlayerID `json:"-"` // server-side filter only; not sent on wire
 }
 
 type WelcomeData struct {

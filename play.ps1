@@ -132,7 +132,6 @@ $ps.Runspace = $rs
                     'random_teleport' { return 'trap - random teleport' }
                     'lose_next_turn'  { return 'trap - lose next turn' }
                     'lose_bullet'     { return 'trap - lost bullet' }
-                    'info_blackout'   { return 'trap - info blackout' }
                     default           { return "trap - $eff" }
                 }
             }
@@ -161,11 +160,17 @@ $ps.Runspace = $rs
                 if ($p -and $p.correct) { return "$name - submitted map - correct! win!" }
                 return "$name - submitted map - $($p.wrong) wrong ($($p.submitsLeft) left)"
             }
-            'portal_used'   { return 'portal - teleported' }
-            'clue_received' { return 'clue received' }
+            'portal_used'         { return 'portal - teleported' }
+            'you_were_eliminated' {
+                $by = if ($p -and $p.byPlayerName) { $p.byPlayerName } else { $null }
+                if ($by) { return "YOU were eliminated by $by" }
+                return 'YOU were eliminated'
+            }
             'turn_skipped'  {
-                $name = if ($p -and $p.playerName) { $p.playerName } else { '?' }
-                return "$name - turn skipped"
+                $name   = if ($p -and $p.playerName) { $p.playerName } else { '?' }
+                $reason = if ($p -and $p.reason) { $p.reason } else { '' }
+                $suffix = switch ($reason) { 'timeout' { ' (timeout)' } 'trap_effect' { ' (trap)' } default { '' } }
+                return "$name - turn skipped$suffix"
             }
             default { return $ev.kind }
         }

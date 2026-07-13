@@ -93,7 +93,7 @@ class ReducerTest {
             ))
         )
         assertEquals(1, state.eventLog.size)
-        assertEquals("Alice moved up — a blank tile", state.eventLog[0].text)
+        assertEquals("Alice — moved up", state.eventLog[0].text)
 
         state = reduce(
             state,
@@ -103,7 +103,7 @@ class ReducerTest {
         )
         // Accumulates — the previous entry is still there.
         assertEquals(2, state.eventLog.size)
-        assertEquals("Bob moved left — hit a wall", state.eventLog[1].text)
+        assertEquals("Bob — moved left — hit a wall", state.eventLog[1].text)
     }
 
     @Test

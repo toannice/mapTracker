@@ -88,6 +88,74 @@ func BuildDebugMap() [][]Cell {
 	return grid
 }
 
+// ControlMapSize is the side length of the 4×4 control-test map.
+const ControlMapSize = 4
+
+// controlPositions defines player start positions for each test scenario.
+//
+//	Scenario 1: Me moves, bots stay  → Me@(0,0)  Bot1@(2,3)  Bot2@(0,3)
+//	Scenario 2: observer POV          → Me@(2,3)  Bot1@(0,0)  Bot2@(0,3)
+var controlPositions = [3]map[string]Position{
+	{}, // index 0 unused
+	{"Me": {X: 0, Y: 0}, "Bot1": {X: 2, Y: 3}, "Bot2": {X: 0, Y: 3}},
+	{"Me": {X: 2, Y: 3}, "Bot1": {X: 0, Y: 0}, "Bot2": {X: 0, Y: 3}},
+}
+
+// ControlPositionByName returns the fixed start position for a named player.
+// scenario must be 1 or 2; falls back to (0,0) for unknown names/scenarios.
+func ControlPositionByName(name string, scenario int) Position {
+	if scenario >= 1 && scenario <= 2 {
+		if pos, ok := controlPositions[scenario][name]; ok {
+			return pos
+		}
+	}
+	return Position{X: 0, Y: 0}
+}
+
+// BuildControlMap returns a fixed 4×4 map for controlled testing.
+//
+// Layout (T=trap R=reward I=info W=wall B=bullet .=empty):
+//
+//	  0  1  2  3
+//	0 .  T  T  T   ← Me@(0,0) scenario1 / Bot1@(0,0) scenario2
+//	1 I  R  R  R
+//	2 I  I  .  W
+//	3 .  .  .  B   ← Bot2@(0,3) Bot1@(2,3) scenario1 / Me@(2,3) scenario2
+func BuildControlMap() [][]Cell {
+	raw := []string{
+		"XTTT",
+		"IRRR",
+		"IIXW",
+		"XXXB",
+	}
+	grid := make([][]Cell, ControlMapSize)
+	for y := 0; y < ControlMapSize; y++ {
+		grid[y] = make([]Cell, ControlMapSize)
+		for x := 0; x < ControlMapSize; x++ {
+			pos := Position{X: x, Y: y}
+			var ch byte
+			if y < len(raw) && x < len(raw[y]) {
+				ch = raw[y][x]
+			}
+			switch ch {
+			case 'W':
+				grid[y][x] = Cell{Pos: pos, Kind: CellWall}
+			case 'B':
+				grid[y][x] = Cell{Pos: pos, Kind: CellBullet}
+			case 'R':
+				grid[y][x] = Cell{Pos: pos, Kind: CellReward}
+			case 'T':
+				grid[y][x] = Cell{Pos: pos, Kind: CellTrap}
+			case 'I':
+				grid[y][x] = Cell{Pos: pos, Kind: CellInfo}
+			default:
+				grid[y][x] = Cell{Pos: pos, Kind: CellEmpty}
+			}
+		}
+	}
+	return grid
+}
+
 // GenerateMap builds a map with item counts scaled to playerCount.
 // Regenerates until all non-wall cells form a single connected region.
 func GenerateMap(mapSize int, rng *rand.Rand, wallPct float64, playerCount int) [][]Cell {

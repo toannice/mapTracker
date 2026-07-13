@@ -54,7 +54,7 @@ func buildMapStats(state *game.GameState) *MapStats {
 		return nil
 	}
 	counts := map[string]int{
-		"wall": 0, "blank": 0, "trap": 0, "reward": 0, "bullet": 0, "portal": 0,
+		"wall": 0, "blank": 0, "trap": 0, "reward": 0, "bullet": 0, "portal": 0, "info": 0,
 	}
 	for _, row := range state.Grid {
 		for _, cell := range row {
@@ -71,6 +71,8 @@ func buildMapStats(state *game.GameState) *MapStats {
 				counts["bullet"]++
 			case game.CellPortalA, game.CellPortalB:
 				counts["portal"]++
+			case game.CellInfo:
+				counts["info"]++
 			}
 		}
 	}
@@ -112,16 +114,13 @@ func BuildPlayerView(state *game.GameState, playerID game.PlayerID, events []Eve
 		visible = append(visible, CellView{Pos: cell.Pos, Kind: cell.Kind})
 	}
 
-	// suppress clue events when InfoBlackout is active, then clear it
-	filteredEvents := events
-	if p.InfoBlackout {
-		filteredEvents = make([]Event, 0)
-		for _, e := range events {
-			if e.Kind != EventClueReceived {
-				filteredEvents = append(filteredEvents, e)
-			}
+	// Filter events: exclude private events intended for other players.
+	filteredEvents := make([]Event, 0, len(events))
+	for _, e := range events {
+		if e.ForPlayerID != "" && e.ForPlayerID != playerID {
+			continue
 		}
-		p.InfoBlackout = false
+		filteredEvents = append(filteredEvents, e)
 	}
 
 	var currentTurn game.PlayerID

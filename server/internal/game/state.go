@@ -30,8 +30,7 @@ type Position struct {
 type ItemKind string
 
 const (
-	ItemBullet  ItemKind = "bullet"
-	ItemCompass ItemKind = "compass"
+	ItemBullet ItemKind = "bullet"
 )
 
 type Item struct {
@@ -42,6 +41,7 @@ type Item struct {
 type Player struct {
 	ID           PlayerID          `json:"id"`
 	Name         string            `json:"name"`
+	IsBot        bool              `json:"-"`
 	Pos          Position          `json:"-"`
 	StartPos     Position          `json:"-"`
 	Alive        bool              `json:"alive"`
@@ -56,9 +56,11 @@ type Player struct {
 
 // GameEvent is a game-layer event produced by action resolvers.
 // The room layer converts these to protocol.Event for wire encoding.
+// ForPlayerID, if non-empty, restricts delivery to that player only (private event).
 type GameEvent struct {
-	Kind    string
-	Payload interface{}
+	Kind        string
+	Payload     interface{}
+	ForPlayerID PlayerID
 }
 
 type CellKind string
@@ -71,6 +73,7 @@ const (
 	CellTrap    CellKind = "trap"
 	CellPortalA CellKind = "portal_a"
 	CellPortalB CellKind = "portal_b"
+	CellInfo    CellKind = "info"
 )
 
 type Cell struct {

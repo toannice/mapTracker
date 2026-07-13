@@ -126,6 +126,12 @@ class GameViewModel : ViewModel() {
     fun sendPause() = sendAction(ActionData(kind = "pause"))
     fun sendResume() = sendAction(ActionData(kind = "resume"))
 
+    /** Lobby, host only: add a fair-mode bot ("easy" | "medium" | "hard"). */
+    fun sendAddBot(difficulty: String) = sendAction(ActionData(kind = "add_bot", difficulty = difficulty))
+
+    /** Lobby, host only: remove the most recently added bot. */
+    fun sendRemoveBot() = sendAction(ActionData(kind = "remove_bot"))
+
     fun sendChat(text: String) {
         val trimmed = text.trim()
         if (trimmed.isEmpty() || trimmed.length > 200) return

@@ -90,6 +90,21 @@ func applyMove(state *game.GameState, rng *rand.Rand, p *game.Player, dir game.D
 	case game.CellPortalA, game.CellPortalB:
 		blockType = "portal"
 		gameEvents = game.ResolvePortal(state, p)
+	case game.CellInfo:
+		blockType = "info"
+		gameEvents = game.ResolveInfo(state, p, rng)
+		// InfoBlackout (set by a previous trap) suppresses this turn's private
+		// info reveal. Clear the flag here so it only ever fires once.
+		if p.InfoBlackout {
+			p.InfoBlackout = false
+			filtered := gameEvents[:0]
+			for _, e := range gameEvents {
+				if e.Kind != "info_revealed" {
+					filtered = append(filtered, e)
+				}
+			}
+			gameEvents = filtered
+		}
 	}
 
 	moveEvent := protocol.Event{
@@ -150,6 +165,14 @@ func applyShoot(state *game.GameState, shooter *game.Player, dir game.Direction)
 					Kind: protocol.EventPlayerEliminated,
 					Payload: map[string]string{
 						"playerName":   target.Name,
+						"byPlayerName": shooter.Name,
+					},
+				})
+				// Private notification so the eliminated player knows they are out.
+				events = append(events, protocol.Event{
+					Kind:        protocol.EventYouEliminated,
+					ForPlayerID: target.ID,
+					Payload: map[string]string{
 						"byPlayerName": shooter.Name,
 					},
 				})
@@ -284,8 +307,9 @@ func toProtocolEvents(gevs []game.GameEvent) []protocol.Event {
 	result := make([]protocol.Event, 0, len(gevs))
 	for _, e := range gevs {
 		result = append(result, protocol.Event{
-			Kind:    protocol.EventKind(e.Kind),
-			Payload: e.Payload,
+			Kind:        protocol.EventKind(e.Kind),
+			Payload:     e.Payload,
+			ForPlayerID: e.ForPlayerID,
 		})
 	}
 	return result

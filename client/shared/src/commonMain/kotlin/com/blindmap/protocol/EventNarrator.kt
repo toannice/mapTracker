@@ -50,7 +50,6 @@ fun describeEvent(event: Event): String {
             "lose_bullet"     -> if (bool("lost") == true)
                 "Trap — a player lost their bullet"
             else "Trap — triggered, but player had no bullet"
-            "info_blackout"   -> "Trap — a player's map info is blacked out next turn"
             else -> "Trap triggered"
         }
 
@@ -114,36 +113,20 @@ fun describeEvent(event: Event): String {
             else "Portal — a player teleported"
         }
 
-        "clue_received" -> when (str("type")) {
-            "nearest_direction" -> "Clue — nearest player is to the ${str("direction") ?: "?"}"
-            "own_start_pos"     -> {
-                val at = pos("pos")
-                if (at != null) "Clue — your starting position was $at" else "Clue — starting position hint"
-            }
-            "other_player_pos" -> {
-                val name = str("playerName") ?: "another player"
-                val at = pos("pos")
-                if (at != null) "Clue — $name is at $at" else "Clue — another player's position revealed"
-            }
-            "surroundings_3x3" -> {
-                val cells = runCatching { p?.get("cells")?.jsonArray }.getOrNull()
-                if (!cells.isNullOrEmpty()) {
-                    val parts = cells.mapNotNull { el ->
-                        val obj = runCatching { el.jsonObject }.getOrNull() ?: return@mapNotNull null
-                        val kind = obj["kind"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
-                        val posObj = runCatching { obj["pos"]?.jsonObject }.getOrNull() ?: return@mapNotNull null
-                        val x = posObj["x"]?.jsonPrimitive?.intOrNull ?: return@mapNotNull null
-                        val y = posObj["y"]?.jsonPrimitive?.intOrNull ?: return@mapNotNull null
-                        if (kind == "blank" || kind == "empty") null else "$kind($x,$y)"
-                    }.filterNotNull()
-                    if (parts.isEmpty()) "Clue — surroundings: all clear"
-                    else "Clue — nearby: ${parts.joinToString(" ")}"
-                } else "Clue — surroundings hint received"
-            }
-            else -> "Clue received"
+        "you_were_eliminated" -> {
+            val by = str("byPlayerName")
+            if (by != null) "YOU were eliminated by $by" else "YOU were eliminated"
         }
 
-        "turn_skipped" -> "${str("playerName") ?: "A player"} — turn skipped"
+        "turn_skipped" -> {
+            val name = str("playerName") ?: "A player"
+            val suffix = when (str("reason")) {
+                "timeout"     -> " (timeout)"
+                "trap_effect" -> " (trap)"
+                else          -> ""
+            }
+            "$name — turn skipped$suffix"
+        }
 
         else -> event.kind.replace('_', ' ')
     }
