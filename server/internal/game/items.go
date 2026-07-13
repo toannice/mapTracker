@@ -191,6 +191,9 @@ func ResolveInfo(state *GameState, p *Player, rng *rand.Rand) []GameEvent {
 // ResolvePortal teleports the player to the partner portal.
 // Always returns a portal_used event — even if the partner is missing (orphaned
 // portal), so the player receives feedback instead of silent failure.
+// The event is public but NEVER carries the destination: broadcasting the
+// post-teleport position would leak the player's location to everyone. The
+// stepper sees their new position through their own PlayerView.
 func ResolvePortal(state *GameState, p *Player) []GameEvent {
 	cell := state.Grid[p.Pos.Y][p.Pos.X]
 	partnerKind := CellPortalB
@@ -204,14 +207,14 @@ func ResolvePortal(state *GameState, p *Player) []GameEvent {
 				p.Pos = dest
 				p.VisitedCells[dest] = true
 				return []GameEvent{{Kind: "portal_used", Payload: map[string]interface{}{
-					"dest": dest,
+					"playerName": p.Name,
 				}}}
 			}
 		}
 	}
 	// Orphaned portal: no partner found — player stays, event still fires.
 	return []GameEvent{{Kind: "portal_used", Payload: map[string]interface{}{
-		"dest": p.Pos,
+		"playerName": p.Name,
 	}}}
 }
 

@@ -147,8 +147,7 @@ def fmt_event(ev):
         return f"{name} - submitted map - {p.get('wrong', 0)} wrong ({p.get('submitsLeft', '?')} left)"
 
     if kind == "portal_used":
-        dest = p.get("dest", {})
-        return f"portal - teleported → ({dest.get('x','?')},{dest.get('y','?')})"
+        return f"{p.get('playerName', '?')} - teleported through a portal"
 
     if kind == "you_were_eliminated":
         by = p.get("byPlayerName")

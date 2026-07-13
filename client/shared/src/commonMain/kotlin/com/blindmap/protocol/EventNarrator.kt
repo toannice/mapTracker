@@ -108,9 +108,8 @@ fun describeEvent(event: Event): String {
         }
 
         "portal_used" -> {
-            val dest = pos("dest")
-            if (dest != null) "Portal — a player teleported to $dest"
-            else "Portal — a player teleported"
+            val name = str("playerName") ?: "A player"
+            "$name — teleported through a portal"
         }
 
         "you_were_eliminated" -> {

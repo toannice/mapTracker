@@ -104,11 +104,10 @@ func (b *Bot) Observe(view *protocol.PlayerView) {
 			}
 
 		case protocol.EventPortalUsed:
-			var p struct {
-				Dest game.Position `json:"dest"`
-			}
-			if decode(ev.Payload, &p) && lastMoved != "" && lastMoved != b.Name {
-				b.setCandidate(lastMoved, p.Dest)
+			// Destination is hidden from everyone — an opponent who teleported
+			// could be anywhere again.
+			if lastMoved != "" && lastMoved != b.Name {
+				b.candidates[lastMoved] = b.fullCandidateSet()
 			}
 
 		case protocol.EventTrapTriggered:
