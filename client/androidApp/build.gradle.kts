@@ -14,6 +14,14 @@ android {
         versionCode = 1
         versionName = "1.0"
     }
+    buildTypes {
+        release {
+            // No dedicated release keystore yet — sign with the debug key so
+            // this build type stays installable via adb for testing. Swap in
+            // a real keystore before any Play Store / public distribution.
+            signingConfig = signingConfigs.getByName("debug")
+        }
+    }
     buildFeatures { compose = true }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
