@@ -93,7 +93,7 @@ class ReducerTest {
             ))
         )
         assertEquals(1, state.eventLog.size)
-        assertEquals("Alice — moved up", state.eventLog[0].text)
+        assertEquals("Alice — đi lên", state.eventLog[0].text)
 
         state = reduce(
             state,
@@ -103,7 +103,7 @@ class ReducerTest {
         )
         // Accumulates — the previous entry is still there.
         assertEquals(2, state.eventLog.size)
-        assertEquals("Bob — moved left — hit a wall", state.eventLog[1].text)
+        assertEquals("Bob — đi sang trái — đụng tường", state.eventLog[1].text)
     }
 
     @Test
@@ -112,7 +112,8 @@ class ReducerTest {
             ClientGameState(playerId = "p1"),
             Envelope("error", 0L, json.parseToJsonElement("""{"code":"NOT_YOUR_TURN","message":"it is not your turn"}"""))
         )
-        assertEquals("it is not your turn", state.transientError)
+        // Known codes are localized to Vietnamese for the player.
+        assertEquals("Chưa đến lượt của bạn", state.transientError)
     }
 
     @Test

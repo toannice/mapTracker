@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Debug builds only: talk to a server on the dev machine via
+         `adb reverse tcp:8080 tcp:8080` instead of the production Render
+         deployment, so local server changes can be tested before deploying. -->
+    <string name="server_url">ws://127.0.0.1:8080/ws</string>
+</resources>

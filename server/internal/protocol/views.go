@@ -79,6 +79,22 @@ func buildMapStats(state *game.GameState) *MapStats {
 	return &MapStats{MapSize: state.MapSize, Counts: counts}
 }
 
+// BuildFullMapView flattens the entire grid — every cell, not just the ones a
+// given player has visited. Only safe to send once the match has ended; it
+// backs the "reveal the original map" screen shown on game_over.
+func BuildFullMapView(state *game.GameState) []CellView {
+	if len(state.Grid) == 0 {
+		return nil
+	}
+	cells := make([]CellView, 0, state.MapSize*state.MapSize)
+	for _, row := range state.Grid {
+		for _, cell := range row {
+			cells = append(cells, CellView{Pos: cell.Pos, Kind: cell.Kind})
+		}
+	}
+	return cells
+}
+
 func BuildPlayerView(state *game.GameState, playerID game.PlayerID, events []Event) PlayerView {
 	p := state.Players[playerID]
 
@@ -141,4 +157,3 @@ func BuildPlayerView(state *game.GameState, playerID game.PlayerID, events []Eve
 		Paused:      state.Paused,
 	}
 }
-

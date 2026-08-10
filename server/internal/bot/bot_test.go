@@ -96,6 +96,35 @@ func TestWallInferenceFromFailedMove(t *testing.T) {
 	}
 }
 
+func TestReset(t *testing.T) {
+	b := New("bot-1", "Bot1 (hard)", Hard)
+	b.mapSize = 5
+	b.selfPos = game.Position{X: 2, Y: 2}
+	b.knownWalls[game.Position{X: 1, Y: 1}] = true
+	b.knownFloor[game.Position{X: 0, Y: 0}] = true
+	b.knownKind[game.Position{X: 0, Y: 0}] = game.CellEmpty
+	b.setCandidate("Alice", game.Position{X: 3, Y: 3})
+	b.dead["Alice"] = true
+	target := game.Position{X: 1, Y: 2}
+	b.pendingMoveTarget = &target
+	b.submitFailed = true
+
+	b.Reset()
+
+	if b.mapSize != 0 || b.selfPos != (game.Position{}) {
+		t.Errorf("mapSize/selfPos not cleared: %+v", b)
+	}
+	if len(b.knownWalls) != 0 || len(b.knownFloor) != 0 || len(b.knownKind) != 0 {
+		t.Error("known map memory not cleared")
+	}
+	if len(b.candidates) != 0 || len(b.dead) != 0 {
+		t.Error("opponent tracking not cleared")
+	}
+	if b.pendingMoveTarget != nil || b.submitFailed {
+		t.Error("pending move / submitFailed not cleared")
+	}
+}
+
 func TestMediumAvoidsKnownWalls(t *testing.T) {
 	b := New("bot-1", "Bot1 (med)", Medium)
 	b.Name = "Bot1 (med)"

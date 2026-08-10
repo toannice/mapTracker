@@ -22,14 +22,15 @@ type JoinData struct {
 type ActionKind string
 
 const (
-	ActionMove      ActionKind = "move"
-	ActionShoot     ActionKind = "shoot"
-	ActionSubmitMap ActionKind = "submit_map"
-	ActionPause     ActionKind = "pause"
-	ActionResume    ActionKind = "resume"
-	ActionPass      ActionKind = "pass" // bot/test: skip turn without waiting for timer
-	ActionAddBot    ActionKind = "add_bot"    // lobby, host only
-	ActionRemoveBot ActionKind = "remove_bot" // lobby, host only
+	ActionMove          ActionKind = "move"
+	ActionShoot         ActionKind = "shoot"
+	ActionSubmitMap     ActionKind = "submit_map"
+	ActionPause         ActionKind = "pause"
+	ActionResume        ActionKind = "resume"
+	ActionPass          ActionKind = "pass"            // bot/test: skip turn without waiting for timer
+	ActionAddBot        ActionKind = "add_bot"         // lobby, host only
+	ActionRemoveBot     ActionKind = "remove_bot"      // lobby, host only
+	ActionReturnToLobby ActionKind = "return_to_lobby" // post-game, any player
 )
 
 type ActionData struct {
@@ -79,8 +80,19 @@ type LobbyView struct {
 }
 
 type GameOverData struct {
-	Winner    *string `json:"winner"`
-	WinReason string  `json:"winReason"`
+	Winner    *string           `json:"winner"`
+	WinReason string            `json:"winReason"`
+	Map       []CellView        `json:"map,omitempty"`
+	MapSize   int               `json:"mapSize,omitempty"`
+	Players   []PlayerStartView `json:"players,omitempty"`
+}
+
+// PlayerStartView reveals where each player started — only ever sent on
+// game_over, once the match is decided, alongside the full map.
+type PlayerStartView struct {
+	Name     string        `json:"name"`
+	StartPos game.Position `json:"startPos"`
+	Alive    bool          `json:"alive"`
 }
 
 type ErrorData struct {

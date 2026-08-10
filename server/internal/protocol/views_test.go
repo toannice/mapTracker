@@ -100,6 +100,36 @@ func TestBuildPlayerViewVisitedOnly(t *testing.T) {
 	}
 }
 
+func TestBuildFullMapViewRevealsUnvisitedCells(t *testing.T) {
+	grid := makeGrid(3)
+	grid[0][1].Kind = game.CellWall // never visited by anyone
+	state := &game.GameState{MapSize: 3, Grid: grid}
+
+	cells := BuildFullMapView(state)
+	if len(cells) != 9 {
+		t.Fatalf("want all 9 cells, got %d", len(cells))
+	}
+	found := false
+	for _, c := range cells {
+		if c.Pos == (game.Position{X: 1, Y: 0}) {
+			found = true
+			if c.Kind != game.CellWall {
+				t.Errorf("wall cell kind: want wall, got %s", c.Kind)
+			}
+		}
+	}
+	if !found {
+		t.Error("unvisited wall cell missing from full map view")
+	}
+}
+
+func TestBuildFullMapViewEmptyGrid(t *testing.T) {
+	state := &game.GameState{MapSize: 5}
+	if cells := BuildFullMapView(state); cells != nil {
+		t.Errorf("want nil for empty grid, got %v", cells)
+	}
+}
+
 func makeGrid(size int) [][]game.Cell {
 	grid := make([][]game.Cell, size)
 	for y := 0; y < size; y++ {

@@ -75,9 +75,19 @@ data class WelcomeData(
 )
 
 @Serializable
+data class PlayerStartView(
+    val name: String,
+    @SerialName("startPos") val startPos: Position,
+    val alive: Boolean
+)
+
+@Serializable
 data class GameOverData(
     val winner: String?,
-    @SerialName("winReason") val winReason: String
+    @SerialName("winReason") val winReason: String,
+    val map: List<CellView> = emptyList(),
+    @SerialName("mapSize") val mapSize: Int = 0,
+    val players: List<PlayerStartView> = emptyList()
 )
 
 @Serializable

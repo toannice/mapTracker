@@ -5,31 +5,40 @@ import (
 	"math/rand/v2"
 )
 
+// ResolveReward picks one of five effects when a player steps on a reward
+// tile. Unlike traps, every effect here is private intel for the stepper
+// alone (ForPlayerID) — nothing is broadcast to other players. Weights:
+// own current position 15%, own start position 20%, a random living
+// opponent's current position 15%, nearest-opponent compass direction 30%,
+// one random bullet-tile location 20%.
 func ResolveReward(state *GameState, p *Player, rng *rand.Rand) []GameEvent {
-	effect := rng.IntN(3)
-	var events []GameEvent
+	roll := rng.IntN(100)
+	payload := map[string]interface{}{}
 
-	switch effect {
-	case 0: // reveal all current positions to everyone
-		type namedPos struct {
-			Name string   `json:"name"`
-			Pos  Position `json:"pos"`
-		}
-		var positions []namedPos
+	switch {
+	case roll < 15: // reveal own current position
+		payload["effect"] = "own_position"
+		payload["pos"] = p.Pos
+	case roll < 35: // reveal own start-of-match position
+		payload["effect"] = "own_start"
+		payload["pos"] = p.StartPos
+	case roll < 50: // reveal a random living opponent's current position
+		var others []*Player
 		for _, pl := range state.Players {
-			if pl.Alive {
-				positions = append(positions, namedPos{Name: pl.Name, Pos: pl.Pos})
+			if pl.ID != p.ID && pl.Alive {
+				others = append(others, pl)
 			}
 		}
-		events = append(events, GameEvent{Kind: "reward_activated", Payload: map[string]interface{}{
-			"effect": "all_positions_revealed", "positions": positions,
-		}})
-	case 1: // nearest player direction
-		dir := nearestPlayerDirection(state, p)
-		events = append(events, GameEvent{Kind: "reward_activated", Payload: map[string]interface{}{
-			"effect": "nearest_direction", "direction": dir,
-		}})
-	case 2: // all bullet tile locations
+		payload["effect"] = "other_position"
+		if len(others) > 0 {
+			target := others[rng.IntN(len(others))]
+			payload["playerName"] = target.Name
+			payload["pos"] = target.Pos
+		}
+	case roll < 80: // nearest opponent direction
+		payload["effect"] = "nearest_direction"
+		payload["direction"] = nearestPlayerDirection(state, p)
+	default: // one random bullet-tile location — repeats across triggers are fine
 		var locs []Position
 		for y, row := range state.Grid {
 			for x, cell := range row {
@@ -38,22 +47,27 @@ func ResolveReward(state *GameState, p *Player, rng *rand.Rand) []GameEvent {
 				}
 			}
 		}
-		events = append(events, GameEvent{Kind: "reward_activated", Payload: map[string]interface{}{
-			"effect": "all_bullet_locations", "locations": locs,
-		}})
+		payload["effect"] = "bullet_location"
+		if len(locs) > 0 {
+			payload["pos"] = locs[rng.IntN(len(locs))]
+		}
 	}
 
 	// Move reward tile to a new random empty non-special position.
 	// safeRandomEmptyCell caps attempts so the game never hangs on a packed map.
+	// If no empty cell exists, the tile simply disappears (dense map) — the
+	// stepper is told either way via "relocated" so the reveal-dialog doesn't
+	// need to guess.
 	oldPos := p.Pos
+	relocated := false
 	if newPos, ok := safeRandomEmptyCell(state.Grid, state.MapSize, rng); ok {
 		state.Grid[oldPos.Y][oldPos.X] = Cell{Pos: oldPos, Kind: CellEmpty}
 		state.Grid[newPos.Y][newPos.X] = Cell{Pos: newPos, Kind: CellReward}
+		relocated = true
 	}
-	// If no empty cell exists, the reward tile simply disappears — acceptable on
-	// very dense maps.
+	payload["relocated"] = relocated
 
-	return events
+	return []GameEvent{{Kind: "reward_activated", ForPlayerID: p.ID, Payload: payload}}
 }
 
 func ResolveTrap(state *GameState, p *Player, rng *rand.Rand) []GameEvent {
@@ -74,12 +88,16 @@ func ResolveTrap(state *GameState, p *Player, rng *rand.Rand) []GameEvent {
 			p.VisitedCells[newPos] = true
 		}
 		events = append(events, GameEvent{Kind: "trap_triggered", Payload: map[string]interface{}{
-			"effect": "random_teleport",
+			"effect":     "random_teleport",
+			"playerId":   string(p.ID),
+			"playerName": p.Name,
 		}})
 	case 2: // lose next turn
 		p.SkipNextTurn = true
 		events = append(events, GameEvent{Kind: "trap_triggered", Payload: map[string]interface{}{
-			"effect": "lose_next_turn",
+			"effect":     "lose_next_turn",
+			"playerId":   string(p.ID),
+			"playerName": p.Name,
 		}})
 	case 3: // lose bullet
 		removed := false
@@ -92,6 +110,7 @@ func ResolveTrap(state *GameState, p *Player, rng *rand.Rand) []GameEvent {
 		}
 		events = append(events, GameEvent{Kind: "trap_triggered", Payload: map[string]interface{}{
 			"effect": "lose_bullet", "lost": removed,
+			"playerId": string(p.ID), "playerName": p.Name,
 		}})
 	}
 

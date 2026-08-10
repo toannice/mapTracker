@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug builds only: allow cleartext ws:// to the local dev server
+     (127.0.0.1 via `adb reverse`). Release keeps the default (blocked),
+     since production always uses wss:// against Render. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:usesCleartextTraffic="true" />
+</manifest>

@@ -68,6 +68,23 @@ func New(id game.PlayerID, name string, diff Difficulty) *Bot {
 	}
 }
 
+// Reset clears everything the bot has learned about the map and its
+// opponents. Call it before a new match starts on an already-created Bot
+// (a room returning to the lobby reuses the same instance) — otherwise it
+// would carry stale wall/candidate knowledge from the previous map into the
+// new one.
+func (b *Bot) Reset() {
+	b.mapSize = 0
+	b.selfPos = game.Position{}
+	b.knownWalls = make(map[game.Position]bool)
+	b.knownFloor = make(map[game.Position]bool)
+	b.knownKind = make(map[game.Position]game.CellKind)
+	b.candidates = make(map[string]map[game.Position]bool)
+	b.dead = make(map[string]bool)
+	b.pendingMoveTarget = nil
+	b.submitFailed = false
+}
+
 // Observe digests a PlayerView broadcast (turn_result / game_start) into the
 // bot's memory. Must be called from the room goroutine.
 func (b *Bot) Observe(view *protocol.PlayerView) {
@@ -130,29 +147,24 @@ func (b *Bot) Observe(view *protocol.PlayerView) {
 				}
 			}
 
-		case protocol.EventRewardActivated:
+		case protocol.EventRewardActivated: // private; BuildPlayerView already filtered to ours
 			var p struct {
-				Effect    string `json:"effect"`
-				Positions []struct {
-					Name string        `json:"name"`
-					Pos  game.Position `json:"pos"`
-				} `json:"positions"`
-				Locations []game.Position `json:"locations"`
+				Effect     string         `json:"effect"`
+				PlayerName string         `json:"playerName"`
+				Pos        *game.Position `json:"pos"`
 			}
 			if !decode(ev.Payload, &p) {
 				continue
 			}
 			switch p.Effect {
-			case "all_positions_revealed":
-				for _, np := range p.Positions {
-					if np.Name != b.Name {
-						b.setCandidate(np.Name, np.Pos)
-					}
+			case "other_position":
+				if p.PlayerName != "" && p.PlayerName != b.Name && p.Pos != nil {
+					b.setCandidate(p.PlayerName, *p.Pos)
 				}
-			case "all_bullet_locations":
-				for _, loc := range p.Locations {
-					b.knownFloor[loc] = true
-					b.knownKind[loc] = game.CellBullet
+			case "bullet_location":
+				if p.Pos != nil {
+					b.knownFloor[*p.Pos] = true
+					b.knownKind[*p.Pos] = game.CellBullet
 				}
 			}
 

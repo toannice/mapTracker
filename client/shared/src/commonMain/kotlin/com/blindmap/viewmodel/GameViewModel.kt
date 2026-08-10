@@ -31,14 +31,41 @@ class GameViewModel : ViewModel() {
     private var serverUrl: String = ""
     private var currentRoomCode: String = ""
     private var currentPlayerName: String = ""
+    private var connectJob: kotlinx.coroutines.Job? = null
+
+    init {
+        // Single collectors for the ViewModel's lifetime. Launching these inside
+        // connect() registered a new SharedFlow subscriber per call, so every
+        // envelope was reduced twice after a rejoin — duplicating event lines.
+        viewModelScope.launch {
+            wsClient.incoming.collect { envelope ->
+                _uiState.value = reduce(_uiState.value, envelope)
+            }
+        }
+        viewModelScope.launch {
+            wsClient.onClosed.collect {
+                val playerId = _uiState.value.playerId
+                if (playerId.isNotEmpty()) {
+                    _uiState.value = _uiState.value.copy(connState = ConnState.Reconnecting)
+                    reconnectManager.reconnect(playerId, serverUrl, currentRoomCode, currentPlayerName)
+                    _uiState.value = _uiState.value.copy(connState = reconnectManager.connState.value)
+                }
+            }
+        }
+    }
 
     fun connect(serverUrl: String, roomCode: String, playerName: String) {
         this.serverUrl = serverUrl
         this.currentRoomCode = roomCode
         this.currentPlayerName = playerName
 
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(connState = ConnState.Connecting, connectionError = null)
+        connectJob?.cancel()
+        connectJob = viewModelScope.launch {
+            // Fresh room context: drop the old identity/lobby state and close any
+            // previous socket, so the onClosed collector (which keys off playerId)
+            // won't auto-reconnect to the room we are leaving.
+            _uiState.value = ClientGameState(connState = ConnState.Connecting)
+            wsClient.close()
             val coldStartDeadline = System.currentTimeMillis() + 60_000L
             var attempt = 0
             while (true) {
@@ -50,30 +77,13 @@ class GameViewModel : ViewModel() {
                     if (remaining <= 0) {
                         _uiState.value = _uiState.value.copy(
                             connState = ConnState.Failed,
-                            connectionError = "Server unreachable after 60s. Try again."
+                            connectionError = "Không kết nối được máy chủ sau 60 giây. Hãy thử lại."
                         )
                         break
                     }
                     attempt++
                     val backoff = minOf(1000L * (1L shl minOf(attempt - 1, 3)), 10_000L)
                     delay(minOf(backoff, remaining))
-                }
-            }
-        }
-
-        viewModelScope.launch {
-            wsClient.incoming.collect { envelope ->
-                _uiState.value = reduce(_uiState.value, envelope)
-            }
-        }
-
-        viewModelScope.launch {
-            wsClient.onClosed.collect {
-                val playerId = _uiState.value.playerId
-                if (playerId.isNotEmpty()) {
-                    _uiState.value = _uiState.value.copy(connState = ConnState.Reconnecting)
-                    reconnectManager.reconnect(playerId, serverUrl, roomCode, playerName)
-                    _uiState.value = _uiState.value.copy(connState = reconnectManager.connState.value)
                 }
             }
         }
@@ -123,8 +133,25 @@ class GameViewModel : ViewModel() {
         sendAction(ActionData(kind = "submit_map", walls = walls))
     }
 
+    /** Cycles a map-reconstruction cell to its next mark (blank→wall→trap→bullet→portal 1..N→blank). */
+    fun cycleMapMark(pos: Position, portalPairs: Int) {
+        _uiState.value = com.blindmap.state.cycleMapMark(_uiState.value, pos, portalPairs)
+    }
+
+    /** Wipes every map-reconstruction mark back to blank ("Xóa trắng" action). */
+    fun clearMapMarks() {
+        _uiState.value = com.blindmap.state.clearMapMarks(_uiState.value)
+    }
+
     fun sendPause() = sendAction(ActionData(kind = "pause"))
     fun sendResume() = sendAction(ActionData(kind = "resume"))
+
+    /**
+     * Post-game: rejoin this room's lobby on the current connection (no
+     * reconnect) so the room can start a fresh match together with anyone
+     * else who also returns. See [reset] for leaving the room entirely.
+     */
+    fun sendReturnToLobby() = sendAction(ActionData(kind = "return_to_lobby"))
 
     /** Lobby, host only: add a fair-mode bot ("easy" | "medium" | "hard"). */
     fun sendAddBot(difficulty: String) = sendAction(ActionData(kind = "add_bot", difficulty = difficulty))

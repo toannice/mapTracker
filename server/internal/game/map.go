@@ -189,15 +189,15 @@ func buildGrid(mapSize int, rng *rand.Rand, wallPct float64, playerCount int) []
 	bullets := clampMin(randBetween(rng, total*6/100, total*13/100), playerCount)
 	placeRandom(grid, mapSize, rng, CellBullet, bullets, 0)
 
-	// Rewards: 1.0–3.0× players; priority range 1.5–2.0×.
-	rewards := playerScaled(rng, playerCount, 1.0, 3.0, 1.5, 2.0)
+	// Rewards: 1.0–3.0× players; priority range 1.0–1.5×.
+	rewards := playerScaled(rng, playerCount, 1.0, 3.0, 1.0, 1.5)
 	placeRandom(grid, mapSize, rng, CellReward, rewards, 0)
 
 	// Traps: 1.0–2.0× players; priority range 1.0–1.3× (light pressure).
 	traps := playerScaled(rng, playerCount, 1.0, 2.0, 1.0, 1.3)
 	placeRandom(grid, mapSize, rng, CellTrap, traps, 0)
 
-	// Portals: 30% none, 35% 1 pair, 25% 2 pairs, 10% 3 pairs.
+	// Portals: 40% none, 30% 1 pair, 20% 2 pairs, 10% 3 pairs.
 	pairs := randomPortalPairs(rng)
 	for i := 1; i <= pairs; i++ {
 		posA := randomEmptyCell(grid, mapSize, rng)
@@ -239,9 +239,9 @@ func clampMin(n, min int) int {
 func randomPortalPairs(rng *rand.Rand) int {
 	r := rng.Float64()
 	switch {
-	case r < 0.30:
+	case r < 0.40:
 		return 0
-	case r < 0.65:
+	case r < 0.70:
 		return 1
 	case r < 0.90:
 		return 2

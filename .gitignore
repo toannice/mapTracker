@@ -35,3 +35,11 @@ Thumbs.db
 # Temp
 *.tmp
 *.swp
+test_output.txt
+test_control_*.txt
+
+# Editor
+.vscode/
+
+# Build artifacts left at repo root by manual APK builds/adb installs
+/*.apk

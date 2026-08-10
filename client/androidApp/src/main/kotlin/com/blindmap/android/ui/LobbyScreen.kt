@@ -14,7 +14,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -47,10 +49,46 @@ fun LobbyScreen(vm: GameViewModel, serverUrl: String, onNavigateToGame: () -> Un
     var roomCode by remember { mutableStateOf("") }
     var mapSize by remember { mutableIntStateOf(10) }
     var turnSeconds by remember { mutableIntStateOf(30) }
-    var serverUrlInput by remember { mutableStateOf(serverUrl) }
+    // "create" | "join" — set khi user bấm nút lúc đang ở trong phòng khác,
+    // để hỏi xác nhận trước khi rời phòng hiện tại.
+    var confirmAction by remember { mutableStateOf<String?>(null) }
+
+    val inRoom = state.lobby != null
+
+    fun doCreate() {
+        val code = generateRoomCode()
+        roomCode = code
+        vm.connect(serverUrl, code, playerName)
+    }
+
+    fun doJoin() = vm.connect(serverUrl, roomCode, playerName)
 
     LaunchedEffect(state.phase) {
         if (state.phase == GamePhase.Active) onNavigateToGame()
+    }
+
+    confirmAction?.let { action ->
+        val currentRoom = state.lobby?.roomCode ?: ""
+        AlertDialog(
+            onDismissRequest = { confirmAction = null },
+            title = { Text(if (action == "create") "Tạo phòng mới?" else "Vào phòng khác?") },
+            text = {
+                Text(
+                    "Bạn đang ở trong phòng $currentRoom. " +
+                        if (action == "create") "Có muốn rời đi và tạo phòng mới không?"
+                        else "Có muốn rời đi và vào phòng $roomCode không?"
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmAction = null
+                    if (action == "create") doCreate() else doJoin()
+                }) { Text("Có") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmAction = null }) { Text("Không") }
+            }
+        )
     }
 
     Column(
@@ -67,19 +105,9 @@ fun LobbyScreen(vm: GameViewModel, serverUrl: String, onNavigateToGame: () -> Un
         Spacer(Modifier.height(24.dp))
 
         OutlinedTextField(
-            value = serverUrlInput,
-            onValueChange = { serverUrlInput = it.trim() },
-            label = { Text("Server (ws://ip:8080/ws)") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            textStyle = MaterialTheme.typography.bodySmall
-        )
-        Spacer(Modifier.height(12.dp))
-
-        OutlinedTextField(
             value = playerName,
             onValueChange = { playerName = it.take(20) },
-            label = { Text("Your Name") },
+            label = { Text("Tên của bạn") },
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(Modifier.height(12.dp))
@@ -87,34 +115,30 @@ fun LobbyScreen(vm: GameViewModel, serverUrl: String, onNavigateToGame: () -> Un
         OutlinedTextField(
             value = roomCode,
             onValueChange = { roomCode = it.uppercase().take(6) },
-            label = { Text("Room Code") },
+            label = { Text("Mã phòng") },
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(Modifier.height(16.dp))
 
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
-                onClick = {
-                    val code = generateRoomCode()
-                    roomCode = code
-                    vm.connect(serverUrlInput, code, playerName)
-                },
-                enabled = playerName.isNotBlank() && serverUrlInput.isNotBlank(),
+                onClick = { if (inRoom) confirmAction = "create" else doCreate() },
+                enabled = playerName.isNotBlank(),
                 modifier = Modifier.weight(1f)
-            ) { Text("Create Room") }
+            ) { Text("Tạo phòng") }
 
             OutlinedButton(
-                onClick = { vm.connect(serverUrlInput, roomCode, playerName) },
-                enabled = playerName.isNotBlank() && roomCode.length == 6 && serverUrlInput.isNotBlank(),
+                onClick = { if (inRoom) confirmAction = "join" else doJoin() },
+                enabled = playerName.isNotBlank() && roomCode.length == 6,
                 modifier = Modifier.weight(1f)
-            ) { Text("Join Room") }
+            ) { Text("Vào phòng") }
         }
 
         Spacer(Modifier.height(24.dp))
 
         val players = state.lobby?.players ?: emptyList()
         if (players.isNotEmpty()) {
-            Text("Players (${players.size}/8)", style = MaterialTheme.typography.titleMedium)
+            Text("Người chơi (${players.size}/8)", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
             Column(modifier = Modifier.fillMaxWidth()) {
                 players.forEach { name ->
@@ -126,7 +150,7 @@ fun LobbyScreen(vm: GameViewModel, serverUrl: String, onNavigateToGame: () -> Un
             val isHost = state.lobby?.isHost == true
             if (isHost) {
                 // Map settings
-                Text("Map size: ${mapSize}×$mapSize", style = MaterialTheme.typography.bodySmall)
+                Text("Kích thước bản đồ: ${mapSize}×$mapSize", style = MaterialTheme.typography.bodySmall)
                 Slider(
                     value = mapSize.toFloat(),
                     onValueChange = { mapSize = it.toInt() },
@@ -135,7 +159,7 @@ fun LobbyScreen(vm: GameViewModel, serverUrl: String, onNavigateToGame: () -> Un
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(Modifier.height(4.dp))
-                Text("Turn time: ${turnSeconds}s", style = MaterialTheme.typography.bodySmall)
+                Text("Thời gian mỗi lượt: ${turnSeconds} giây", style = MaterialTheme.typography.bodySmall)
                 Slider(
                     value = turnSeconds.toFloat(),
                     onValueChange = { turnSeconds = it.toInt() },
@@ -144,20 +168,20 @@ fun LobbyScreen(vm: GameViewModel, serverUrl: String, onNavigateToGame: () -> Un
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(Modifier.height(8.dp))
-                Text("Bots", style = MaterialTheme.typography.bodySmall)
+                Text("Bot (người máy)", style = MaterialTheme.typography.bodySmall)
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
                         onClick = { vm.sendAddBot("easy") },
                         modifier = Modifier.weight(1f)
-                    ) { Text("+Easy") }
+                    ) { Text("+Dễ") }
                     OutlinedButton(
                         onClick = { vm.sendAddBot("medium") },
                         modifier = Modifier.weight(1f)
-                    ) { Text("+Med") }
+                    ) { Text("+Vừa") }
                     OutlinedButton(
                         onClick = { vm.sendAddBot("hard") },
                         modifier = Modifier.weight(1f)
-                    ) { Text("+Hard") }
+                    ) { Text("+Khó") }
                     if (players.any { it.startsWith("Bot") }) {
                         OutlinedButton(
                             onClick = { vm.sendRemoveBot() },
@@ -169,9 +193,9 @@ fun LobbyScreen(vm: GameViewModel, serverUrl: String, onNavigateToGame: () -> Un
                 Button(
                     onClick = { vm.sendStartGame(mapSize, turnSeconds) },
                     modifier = Modifier.fillMaxWidth()
-                ) { Text(if (players.size == 1) "Start Solo" else "Start Game") }
+                ) { Text(if (players.size == 1) "Chơi một mình" else "Bắt đầu") }
             } else {
-                Text("Waiting for host to start...", style = MaterialTheme.typography.bodySmall)
+                Text("Đang chờ chủ phòng bắt đầu…", style = MaterialTheme.typography.bodySmall)
             }
 
             Spacer(Modifier.height(12.dp))
@@ -209,10 +233,10 @@ private fun ColdStartIndicator() {
     }
 
     val message = when {
-        elapsed < 5  -> "Connecting…"
-        elapsed < 20 -> "Waking server… (free tier cold start, up to 60s)"
-        elapsed < 45 -> "Still waking… ${60 - elapsed}s remaining"
-        else         -> "Almost there… ${60 - elapsed}s"
+        elapsed < 5  -> "Đang kết nối…"
+        elapsed < 20 -> "Đang đánh thức máy chủ… (có thể mất tới 60 giây)"
+        elapsed < 45 -> "Máy chủ vẫn đang khởi động… còn ${60 - elapsed} giây"
+        else         -> "Sắp xong rồi… còn ${60 - elapsed} giây"
     }
 
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -225,7 +249,7 @@ private fun ColdStartIndicator() {
             modifier = Modifier.fillMaxWidth()
         )
         Text(
-            "${elapsed}s / 60s",
+            "${elapsed} / 60 giây",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
         )

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	mrand "math/rand/v2"
+	"sort"
 	"strings"
 	"time"
 
@@ -29,6 +30,7 @@ type Room struct {
 	joinOrder   []game.PlayerID // tracks join order for debug-map position assignment
 	bots        map[game.PlayerID]*bot.Bot
 	botSeq      int
+	deleteTimer *time.Timer // pending room teardown after game_over; canceled by return_to_lobby
 }
 
 func NewRoom(id game.RoomID, cfg *config.Config, onDelete func(game.RoomID)) *Room {
@@ -166,6 +168,14 @@ func (r *Room) handleAction(ctx context.Context, msg conn.IncomingMsg) {
 		return
 	}
 
+	// return_to_lobby is a post-game action from any player — it works even
+	// though the phase is Ended, so it must be dispatched before the
+	// PhaseActive-only guard below.
+	if data.Kind == protocol.ActionReturnToLobby {
+		r.handleReturnToLobby(msg)
+		return
+	}
+
 	if r.state.Phase != game.PhaseActive {
 		return
 	}
@@ -207,7 +217,7 @@ func (r *Room) handleAction(ctx context.Context, msg conn.IncomingMsg) {
 		if r.state.Phase == game.PhaseEnded {
 			r.broadcastTurnResult(events)
 			r.broadcastGameOver()
-			time.AfterFunc(60*time.Second, func() { r.onDelete(r.state.RoomID) })
+			r.deleteTimer = time.AfterFunc(60*time.Second, func() { r.onDelete(r.state.RoomID) })
 			return
 		}
 		r.broadcastTurnResult(events)
@@ -233,7 +243,7 @@ func (r *Room) handleAction(ctx context.Context, msg conn.IncomingMsg) {
 	if r.state.Phase == game.PhaseEnded {
 		r.broadcastTurnResult(events)
 		r.broadcastGameOver()
-		time.AfterFunc(60*time.Second, func() { r.onDelete(r.state.RoomID) })
+		r.deleteTimer = time.AfterFunc(60*time.Second, func() { r.onDelete(r.state.RoomID) })
 		return
 	}
 
@@ -326,7 +336,7 @@ func (r *Room) disconnect(playerID game.PlayerID) {
 	r.state.Phase = game.PhaseEnded
 	r.state.WinReason = "draw"
 	r.broadcastGameOver()
-	time.AfterFunc(60*time.Second, func() { r.onDelete(r.state.RoomID) })
+	r.deleteTimer = time.AfterFunc(60*time.Second, func() { r.onDelete(r.state.RoomID) })
 }
 
 func (r *Room) RegisterConn(playerID game.PlayerID, c *conn.Conn) {
@@ -511,16 +521,12 @@ func (r *Room) advanceTurnIndex() {
 			continue
 		}
 		if p.SkipNextTurn {
+			// No separate turn_skipped broadcast here: the trap_triggered
+			// event already told everyone this player would lose their next
+			// turn when they stepped on it, so a second notification later
+			// (often several turns on, once it's actually their turn again)
+			// only repeats the same fact out of order and confuses the feed.
 			p.SkipNextTurn = false
-			evs := []protocol.Event{{
-				Kind: protocol.EventTurnSkipped,
-				Payload: map[string]string{
-					"playerId":   string(next),
-					"playerName": r.playerName(next),
-					"reason":     "trap_effect",
-				},
-			}}
-			r.broadcastTurnResult(evs)
 			continue
 		}
 		break
@@ -547,11 +553,76 @@ func (r *Room) broadcastGameOver() {
 			winnerName = &s
 		}
 	}
-	data := protocol.GameOverData{Winner: winnerName, WinReason: r.state.WinReason}
+	players := make([]protocol.PlayerStartView, 0, len(r.state.Players))
+	for _, p := range r.state.Players {
+		players = append(players, protocol.PlayerStartView{
+			Name:     p.Name,
+			StartPos: p.StartPos,
+			Alive:    p.Alive,
+		})
+	}
+	sort.Slice(players, func(i, j int) bool { return players[i].Name < players[j].Name })
+
+	data := protocol.GameOverData{
+		Winner:    winnerName,
+		WinReason: r.state.WinReason,
+		Map:       protocol.BuildFullMapView(r.state),
+		MapSize:   r.state.MapSize,
+		Players:   players,
+	}
 	slog.Info("game ended", "roomId", r.state.RoomID, "winner", winnerName, "winReason", r.state.WinReason)
 	for _, c := range r.conns {
 		r.sendEnvelope(c, "game_over", data)
 	}
+}
+
+// handleReturnToLobby brings the room back to PhaseLobby so a finished match
+// can be followed by another one without re-joining. Any connected player may
+// trigger it; the first one to do so resets the shared room state, and every
+// other player's own "Quay về" click just re-syncs their client to it. Only
+// meaningful post-game — canceling the pending auto-delete lets the room
+// outlive its normal 60s post-game teardown while players regroup.
+func (r *Room) handleReturnToLobby(msg conn.IncomingMsg) {
+	if _, ok := r.state.Players[msg.PlayerID]; !ok {
+		return
+	}
+	if r.state.Phase != game.PhaseEnded {
+		// Someone already brought the room back — just resync this client.
+		r.broadcastLobbyUpdate()
+		return
+	}
+
+	if r.deleteTimer != nil {
+		r.deleteTimer.Stop()
+		r.deleteTimer = nil
+	}
+
+	r.state.Phase = game.PhaseLobby
+	r.state.Grid = nil
+	r.state.TurnOrder = nil
+	r.state.CurrentIdx = 0
+	r.state.Turn = 0
+	r.state.Winner = nil
+	r.state.WinReason = ""
+	r.state.Paused = false
+	r.state.PauseRemainingMs = 0
+
+	for _, p := range r.state.Players {
+		p.Pos = game.Position{}
+		p.StartPos = game.Position{}
+		p.Alive = true
+		p.SkipNextTurn = false
+		p.InfoBlackout = false
+		p.MaxSubmit = 3
+		p.Inventory = []game.Item{}
+		p.VisitedCells = make(map[game.Position]bool)
+	}
+	for _, b := range r.bots {
+		b.Reset()
+	}
+
+	slog.Info("room returned to lobby", "roomId", r.state.RoomID)
+	r.broadcastLobbyUpdate()
 }
 
 func (r *Room) broadcastLobbyUpdate() {
@@ -662,10 +733,10 @@ func errCode(err error) string {
 	return "ERROR"
 }
 
-// randomWallPct picks wall density biased toward 15–25%, occasionally 5–45%.
+// randomWallPct picks wall density biased toward 25–35%, occasionally 5–45%.
 func randomWallPct(rng *mrand.Rand) float64 {
 	if rng.Float64() < 0.80 {
-		return 0.15 + rng.Float64()*0.10 // common: 15–25%
+		return 0.25 + rng.Float64()*0.10 // common: 25–35%
 	}
 	return 0.05 + rng.Float64()*0.40 // rare: 5–45%
 }
