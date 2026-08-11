@@ -34,6 +34,13 @@ func NewConn(ws *websocket.Conn, playerName string, playerID game.PlayerID) *Con
 	}
 }
 
+// idleTimeout bounds how long a connection may go without sending any frame
+// (the client pings every 20s regardless of activity, so this margin is
+// generous). It closes stuck/abandoned sockets — e.g. duplicate connections
+// left over from a client retrying during a slow cold start — instead of
+// letting them linger forever as ghost players.
+const idleTimeout = 40 * time.Second
+
 func (c *Conn) ReadPump(ctx context.Context, roomCh chan<- IncomingMsg) {
 	defer c.wsConn.CloseNow()
 
@@ -43,7 +50,9 @@ func (c *Conn) ReadPump(ctx context.Context, roomCh chan<- IncomingMsg) {
 	)
 
 	for {
-		_, data, err := c.wsConn.Read(ctx)
+		readCtx, cancel := context.WithTimeout(ctx, idleTimeout)
+		_, data, err := c.wsConn.Read(readCtx)
+		cancel()
 		if err != nil {
 			return
 		}

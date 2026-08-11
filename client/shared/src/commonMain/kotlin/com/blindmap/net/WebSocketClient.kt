@@ -10,8 +10,10 @@ import io.ktor.websocket.close
 import io.ktor.websocket.readText
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -60,6 +62,12 @@ class WebSocketClient {
                 }
             }
         } finally {
+            // Always close this attempt's socket, even on failure/cancellation.
+            // Otherwise a retry after a client-perceived failure (e.g. during a
+            // slow cold start) can leave the old, already-joined session open
+            // on the server as a duplicate "ghost" player.
+            withContext(NonCancellable) { runCatching { s.close() } }
+            if (session === s) session = null
             _onClosed.emit(Unit)
         }
     }
