@@ -10,6 +10,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
@@ -63,6 +64,11 @@ private fun BlindMapApp(serverUrl: String, versionCode: Int) {
     val navController = rememberNavController()
     val vm: GameViewModel = viewModel()
     vm.currentVersionCode = versionCode
+
+    // Fire once per process, not per recomposition: the host sleeps when idle
+    // and takes about a minute to wake, so the sooner it is poked the less of
+    // that the player waits through after pressing Connect.
+    LaunchedEffect(Unit) { vm.prewarmServer(serverUrl) }
 
     NavHost(navController = navController, startDestination = "lobby") {
         composable("lobby") {

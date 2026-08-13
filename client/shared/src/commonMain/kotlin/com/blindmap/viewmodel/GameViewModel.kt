@@ -3,6 +3,7 @@ package com.blindmap.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.blindmap.net.ReconnectManager
+import com.blindmap.net.prewarm
 import com.blindmap.net.WebSocketClient
 import com.blindmap.protocol.ActionData
 import com.blindmap.protocol.ChatData
@@ -34,10 +35,23 @@ class GameViewModel : ViewModel() {
      */
     var currentVersionCode: Int = 0
 
+    private var prewarmed = false
+
     private var serverUrl: String = ""
     private var currentRoomCode: String = ""
     private var currentPlayerName: String = ""
     private var connectJob: kotlinx.coroutines.Job? = null
+
+    /**
+     * Starts waking the server before the player has finished typing. Runs at
+     * most once per ViewModel — a second call would only re-pay the request
+     * for a server that is already coming up.
+     */
+    fun prewarmServer(url: String) {
+        if (prewarmed || url.isBlank()) return
+        prewarmed = true
+        viewModelScope.launch { prewarm(url) }
+    }
 
     init {
         // Single collectors for the ViewModel's lifetime. Launching these inside
