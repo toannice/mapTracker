@@ -1,7 +1,17 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     kotlin("android")
     id("org.jetbrains.kotlin.plugin.compose")
+}
+
+// Release signing credentials live in client/keystore.properties, which is
+// gitignored. Absent on a fresh clone — the release build type falls back to
+// the debug key in that case.
+val keystorePropsFile = rootProject.file("keystore.properties")
+val keystoreProps = Properties().apply {
+    if (keystorePropsFile.exists()) keystorePropsFile.inputStream().use { load(it) }
 }
 
 android {
@@ -14,12 +24,26 @@ android {
         versionCode = 1
         versionName = "1.0"
     }
+    signingConfigs {
+        create("release") {
+            if (keystorePropsFile.exists()) {
+                storeFile = file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
+    }
     buildTypes {
         release {
-            // No dedicated release keystore yet — sign with the debug key so
-            // this build type stays installable via adb for testing. Swap in
-            // a real keystore before any Play Store / public distribution.
-            signingConfig = signingConfigs.getByName("debug")
+            // Sign with the real upload key when keystore.properties is present.
+            // Without it (fresh clone, CI without secrets) fall back to the debug
+            // key so release builds still assemble and install via adb — but such
+            // an APK must never be published.
+            signingConfig = if (keystorePropsFile.exists())
+                signingConfigs.getByName("release")
+            else
+                signingConfigs.getByName("debug")
         }
     }
     buildFeatures { compose = true }

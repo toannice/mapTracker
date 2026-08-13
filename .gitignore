@@ -43,3 +43,11 @@ test_control_*.txt
 
 # Build artifacts left at repo root by manual APK builds/adb installs
 /*.apk
+
+# Signing — NEVER commit keystores or their passwords
+*.jks
+*.keystore
+!**/debug.keystore
+keystore.properties
+client/keystore.properties
+client/local.properties
