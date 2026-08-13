@@ -133,6 +133,8 @@ Event kinds inside `turn_result.events`: `player_moved`, `trap_triggered`, `rewa
 | `LATEST_VERSION_CODE` | `0` | Newest published Android build; clients older than this see an update banner. `0` disables |
 | `MIN_VERSION_CODE` | `0` | Oldest Android build this server still speaks to; raise on breaking protocol changes |
 | `UPDATE_URL` | `""` | Where the update banner sends players, e.g. the GitHub Releases page |
+| `GITHUB_REPO` | `""` | `owner/name` to poll for the newest release; overrides `LATEST_VERSION_CODE`/`UPDATE_URL` when a release is found. Empty disables polling |
+| `RELEASE_POLL_MINUTES` | `10` | How often to re-check GitHub releases |
 
 ## Key Design Decisions
 

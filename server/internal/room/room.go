@@ -654,12 +654,13 @@ func (r *Room) sendWelcome(playerID game.PlayerID) {
 		Players:  names,
 		IsHost:   playerID == r.hostID,
 	}
+	latestCode, minCode, updateURL := r.cfg.UpdateHints()
 	welcome := protocol.WelcomeData{
 		PlayerID:          string(playerID),
 		RoomState:         lobby,
-		LatestVersionCode: r.cfg.LatestVersionCode,
-		MinVersionCode:    r.cfg.MinVersionCode,
-		UpdateURL:         r.cfg.UpdateURL,
+		LatestVersionCode: latestCode,
+		MinVersionCode:    minCode,
+		UpdateURL:         updateURL,
 	}
 	r.sendEnvelope(c, "welcome", welcome)
 

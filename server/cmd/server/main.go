@@ -20,11 +20,19 @@ import (
 	"github.com/your-org/blindmap/internal/game"
 	"github.com/your-org/blindmap/internal/hub"
 	"github.com/your-org/blindmap/internal/protocol"
+	"github.com/your-org/blindmap/internal/release"
 )
 
 func main() {
 	cfg := config.Load()
 	initLogger(cfg.LogLevel)
+
+	// Nil when GITHUB_REPO is unset, in which case the static
+	// LATEST_VERSION_CODE / UPDATE_URL settings are used instead.
+	tracker := release.NewTracker(cfg.GitHubRepo, time.Duration(cfg.ReleasePollMinutes)*time.Minute)
+	if tracker != nil {
+		cfg.Releases = tracker
+	}
 
 	h := hub.NewHub(&cfg)
 
@@ -41,6 +49,7 @@ func main() {
 	defer stop()
 
 	go h.Run(ctx)
+	go tracker.Run(ctx) // no-op on a nil tracker
 
 	go func() {
 		slog.Info("server listening", "port", cfg.Port)

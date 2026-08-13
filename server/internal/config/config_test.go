@@ -57,3 +57,47 @@ func TestLoadOverrides(t *testing.T) {
 		t.Errorf("MapSize: want 5, got %d", cfg.MapSize)
 	}
 }
+
+type stubReleases struct {
+	code int
+	url  string
+}
+
+func (s stubReleases) Latest() (int, string) { return s.code, s.url }
+
+func TestUpdateHintsPrefersLiveReleaseData(t *testing.T) {
+	cfg := Config{
+		LatestVersionCode: 10001,
+		MinVersionCode:    9000,
+		UpdateURL:         "https://static/url",
+		Releases:          stubReleases{code: 10003, url: "https://live/url"},
+	}
+	latest, minimum, url := cfg.UpdateHints()
+	if latest != 10003 || url != "https://live/url" {
+		t.Errorf("got %d %q, want live values", latest, url)
+	}
+	if minimum != 9000 {
+		t.Errorf("minimum = %d, want the static 9000 (never tracked)", minimum)
+	}
+}
+
+// Until the first poll lands the tracker reports 0, which must not wipe out a
+// manually configured version.
+func TestUpdateHintsFallsBackBeforeFirstPoll(t *testing.T) {
+	cfg := Config{
+		LatestVersionCode: 10001,
+		UpdateURL:         "https://static/url",
+		Releases:          stubReleases{code: 0},
+	}
+	latest, _, url := cfg.UpdateHints()
+	if latest != 10001 || url != "https://static/url" {
+		t.Errorf("got %d %q, want the static fallback", latest, url)
+	}
+}
+
+func TestUpdateHintsSilentWhenUnconfigured(t *testing.T) {
+	latest, minimum, url := (&Config{}).UpdateHints()
+	if latest != 0 || minimum != 0 || url != "" {
+		t.Errorf("unconfigured server advertised %d %d %q", latest, minimum, url)
+	}
+}
