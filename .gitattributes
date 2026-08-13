@@ -1,0 +1,22 @@
+# Normalize all text to LF in the repository. Working-copy endings are left to
+# each machine's core.autocrlf. Keeps the Windows and Ubuntu dev machines from
+# fighting over line endings.
+* text=auto eol=lf
+
+# Windows-only scripts must keep CRLF or cmd.exe mis-parses them.
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
+# Shell scripts must keep LF or bash fails with "bad interpreter".
+*.sh    text eol=lf
+gradlew text eol=lf
+
+# Binaries — never touch.
+*.png   binary
+*.jpg   binary
+*.jar   binary
+*.jks   binary
+*.keystore binary
+*.docx  binary
+*.apk   binary
+*.aab   binary
