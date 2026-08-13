@@ -68,10 +68,18 @@ func TestNilTrackerIsInert(t *testing.T) {
 	tr.Run(context.Background()) // must not panic or block
 }
 
-func TestRefreshReadsLatestRelease(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"tag_name":"v2.1.4","html_url":"https://example/rel","draft":false}`))
+func redirectServer(t *testing.T, location string, status int) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if location != "" {
+			w.Header().Set("Location", location)
+		}
+		w.WriteHeader(status)
 	}))
+}
+
+func TestRefreshReadsTagFromRedirect(t *testing.T) {
+	srv := redirectServer(t, "https://github.com/o/n/releases/tag/v2.1.4", http.StatusFound)
 	defer srv.Close()
 
 	tr := newTestTracker(srv.URL)
@@ -81,8 +89,20 @@ func TestRefreshReadsLatestRelease(t *testing.T) {
 	if code != 20104 {
 		t.Errorf("code = %d, want 20104", code)
 	}
-	if url != "https://example/rel" {
-		t.Errorf("url = %q", url)
+	if url != "https://github.com/o/n/releases/tag/v2.1.4" {
+		t.Errorf("url = %q, want the redirect target", url)
+	}
+}
+
+// A repo with no published release answers 200 with no Location.
+func TestNoReleaseYieldsNothing(t *testing.T) {
+	srv := redirectServer(t, "", http.StatusOK)
+	defer srv.Close()
+
+	tr := newTestTracker(srv.URL)
+	tr.refresh(context.Background())
+	if code, _ := tr.Latest(); code != 0 {
+		t.Errorf("code = %d, want 0 when there is no release", code)
 	}
 }
 
@@ -92,10 +112,11 @@ func TestFailedRefreshKeepsPreviousAnswer(t *testing.T) {
 	fail := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if fail {
-			w.WriteHeader(http.StatusInternalServerError)
+			w.WriteHeader(http.StatusForbidden)
 			return
 		}
-		w.Write([]byte(`{"tag_name":"v1.0.3","html_url":"https://example/rel"}`))
+		w.Header().Set("Location", "https://github.com/o/n/releases/tag/v1.0.3")
+		w.WriteHeader(http.StatusFound)
 	}))
 	defer srv.Close()
 
@@ -109,16 +130,20 @@ func TestFailedRefreshKeepsPreviousAnswer(t *testing.T) {
 	}
 }
 
-func TestDraftReleaseIsIgnored(t *testing.T) {
+// The redirect must not be followed, or Location is lost and the tag with it.
+func TestRedirectIsNotFollowed(t *testing.T) {
+	hits := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"tag_name":"v9.9.9","html_url":"https://example/d","draft":true}`))
+		hits++
+		w.Header().Set("Location", "https://github.com/o/n/releases/tag/v1.0.3")
+		w.WriteHeader(http.StatusFound)
 	}))
 	defer srv.Close()
 
 	tr := newTestTracker(srv.URL)
 	tr.refresh(context.Background())
-	if code, _ := tr.Latest(); code != 0 {
-		t.Errorf("draft release was published as %d", code)
+	if hits != 1 {
+		t.Errorf("server hit %d times, want 1 — the redirect was chased", hits)
 	}
 }
 
@@ -128,6 +153,11 @@ func newTestTracker(base string) *Tracker {
 	tr.client = &http.Client{
 		Timeout:   5 * time.Second,
 		Transport: rewriteHost{base: base},
+		// Must mirror NewTracker: following the redirect discards Location,
+		// which is the only thing fetch actually reads.
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
 	}
 	return tr
 }

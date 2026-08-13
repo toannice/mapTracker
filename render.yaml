@@ -1,6 +1,8 @@
 services:
   - type: web
-    name: blind-map-survival
+    # Must match the service on Render, which was created from the
+    # dashboard rather than from this blueprint.
+    name: mapTracker
     runtime: docker
     region: singapore
     plan: free
@@ -16,9 +18,9 @@ services:
         value: "30"
       - key: ALLOWED_ORIGINS
         value: "*"
-      # Client update banner. GITHUB_REPO makes the server poll for the newest
-      # release, so shipping an APK needs no redeploy here. Requires the repo
-      # to be public — the poll is unauthenticated.
+      # Client update banner. GITHUB_REPO makes the server watch for the
+      # newest release, so shipping an APK needs no redeploy here. Requires
+      # the repo to be public.
       - key: GITHUB_REPO
         value: toannice/mapTracker
       - key: RELEASE_POLL_MINUTES

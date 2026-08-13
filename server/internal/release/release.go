@@ -5,7 +5,6 @@ package release
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -62,7 +61,14 @@ func NewTracker(repo string, interval time.Duration) *Tracker {
 	return &Tracker{
 		repo:     repo,
 		interval: interval,
-		client:   &http.Client{Timeout: 10 * time.Second},
+		client: &http.Client{
+			Timeout: 10 * time.Second,
+			// Keep the 302 instead of chasing it — the Location header is the
+			// whole answer.
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
 	}
 }
 
@@ -116,12 +122,16 @@ func (t *Tracker) refresh(ctx context.Context) {
 }
 
 func (t *Tracker) fetch(ctx context.Context) (int, string, error) {
-	endpoint := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", t.repo)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	// Deliberately not the REST API: unauthenticated api.github.com allows 60
+	// requests/hour *per IP*, and shared hosting egress shares that budget with
+	// every other tenant, which returned 403 in practice. The plain releases
+	// page instead 302s straight to the newest published release, needs no
+	// token, and its redirect target is exactly the URL clients should open.
+	endpoint := fmt.Sprintf("https://github.com/%s/releases/latest", t.repo)
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, endpoint, nil)
 	if err != nil {
 		return 0, "", err
 	}
-	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "blindmap-server")
 
 	resp, err := t.client.Do(req)
@@ -129,24 +139,17 @@ func (t *Tracker) fetch(ctx context.Context) (int, string, error) {
 		return 0, "", err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return 0, "", fmt.Errorf("github returned %s", resp.Status)
+
+	loc := resp.Header.Get("Location")
+	if loc == "" {
+		// 200 here means the repo has no published release to redirect to.
+		return 0, "", fmt.Errorf("no redirect from releases/latest (status %s)", resp.Status)
 	}
 
-	var payload struct {
-		TagName string `json:"tag_name"`
-		HTMLURL string `json:"html_url"`
-		Draft   bool   `json:"draft"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return 0, "", err
-	}
-	if payload.Draft {
-		return 0, "", fmt.Errorf("latest release %q is a draft", payload.TagName)
-	}
-	code := VersionCodeFromTag(payload.TagName)
+	tag := loc[strings.LastIndex(loc, "/")+1:]
+	code := VersionCodeFromTag(tag)
 	if code == 0 {
-		return 0, "", fmt.Errorf("tag %q is not vMAJOR.MINOR.PATCH", payload.TagName)
+		return 0, "", fmt.Errorf("tag %q is not vMAJOR.MINOR.PATCH", tag)
 	}
-	return code, payload.HTMLURL, nil
+	return code, loc, nil
 }
