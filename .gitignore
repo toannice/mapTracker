@@ -13,6 +13,11 @@ client/androidApp/build/
 client/desktopApp/build/
 *.class
 *.jar
+# ...except the Gradle wrapper jar, which every checkout needs to bootstrap
+# Gradle at all. Without it CI fails with ClassNotFoundException:
+# org.gradle.wrapper.GradleWrapperMain.
+!gradle/wrapper/gradle-wrapper.jar
+!**/gradle/wrapper/gradle-wrapper.jar
 *.iml
 .idea/
 out/
