@@ -16,3 +16,14 @@ services:
         value: "30"
       - key: ALLOWED_ORIGINS
         value: "*"
+      # Client update banner. GITHUB_REPO makes the server poll for the newest
+      # release, so shipping an APK needs no redeploy here. Requires the repo
+      # to be public — the poll is unauthenticated.
+      - key: GITHUB_REPO
+        value: toannice/mapTracker
+      - key: RELEASE_POLL_MINUTES
+        value: "10"
+      # Raise to the versionCode of the oldest build the current protocol still
+      # supports; older clients are then blocked instead of merely nudged.
+      - key: MIN_VERSION_CODE
+        value: "0"
