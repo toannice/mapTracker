@@ -130,6 +130,9 @@ Event kinds inside `turn_result.events`: `player_moved`, `trap_triggered`, `rewa
 | `MAX_ROOMS` | `100` | Concurrent room limit |
 | `TURN_SECONDS` | `30` | Default turn duration |
 | `ALLOWED_ORIGINS` | `*` | CORS/CSWSH origin whitelist |
+| `LATEST_VERSION_CODE` | `0` | Newest published Android build; clients older than this see an update banner. `0` disables |
+| `MIN_VERSION_CODE` | `0` | Oldest Android build this server still speaks to; raise on breaking protocol changes |
+| `UPDATE_URL` | `""` | Where the update banner sends players, e.g. the GitHub Releases page |
 
 ## Key Design Decisions
 

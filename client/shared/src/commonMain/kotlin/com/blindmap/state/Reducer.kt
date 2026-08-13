@@ -18,7 +18,28 @@ import kotlinx.serialization.json.jsonPrimitive
 
 private val json = Json { ignoreUnknownKeys = true }
 
-fun reduce(state: ClientGameState, envelope: Envelope): ClientGameState {
+/**
+ * Null unless this build is genuinely behind what the server reports.
+ * [currentVersionCode] is 0 where the platform reports no version (desktop,
+ * unit tests), which disables the check entirely rather than guessing.
+ */
+private fun updateInfoFrom(data: WelcomeData, currentVersionCode: Int): UpdateInfo? {
+    if (currentVersionCode <= 0 || data.updateUrl.isEmpty()) return null
+    val belowMinimum = data.minVersionCode > currentVersionCode
+    val behindLatest = data.latestVersionCode > currentVersionCode
+    if (!belowMinimum && !behindLatest) return null
+    return UpdateInfo(
+        latestVersionCode = data.latestVersionCode,
+        downloadUrl = data.updateUrl,
+        required = belowMinimum
+    )
+}
+
+fun reduce(
+    state: ClientGameState,
+    envelope: Envelope,
+    currentVersionCode: Int = 0
+): ClientGameState {
     return when (envelope.type) {
         "welcome" -> {
             val data = json.decodeFromJsonElement<WelcomeData>(envelope.data)
@@ -27,7 +48,8 @@ fun reduce(state: ClientGameState, envelope: Envelope): ClientGameState {
                 lobby = data.roomState,
                 phase = GamePhase.Lobby,
                 connState = ConnState.Connected,
-                connectionError = null
+                connectionError = null,
+                updateInfo = updateInfoFrom(data, currentVersionCode)
             )
         }
         "lobby_update" -> {

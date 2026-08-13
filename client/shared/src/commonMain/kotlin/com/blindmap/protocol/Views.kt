@@ -71,7 +71,12 @@ data class LobbyView(
 @Serializable
 data class WelcomeData(
     @SerialName("playerId") val playerId: String,
-    @SerialName("roomState") val roomState: LobbyView
+    @SerialName("roomState") val roomState: LobbyView,
+    // Auto-update hints. Absent on servers that predate this field, hence the
+    // defaults: 0 means "server has no opinion" and the UI stays quiet.
+    @SerialName("latestVersionCode") val latestVersionCode: Int = 0,
+    @SerialName("minVersionCode") val minVersionCode: Int = 0,
+    @SerialName("updateUrl") val updateUrl: String = ""
 )
 
 @Serializable

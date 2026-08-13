@@ -21,8 +21,11 @@ android {
         applicationId = "com.blindmap.android"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        // CI derives these from the pushed git tag (.github/workflows/release.yml)
+        // so a tagged build can never accidentally ship a stale versionCode.
+        // Local builds fall back to the dev version below.
+        versionCode = (System.getenv("VERSION_CODE") ?: "2").toInt()
+        versionName = System.getenv("VERSION_NAME") ?: "1.0.0.1"
     }
     signingConfigs {
         create("release") {

@@ -11,6 +11,8 @@ import kotlinx.serialization.json.encodeToJsonElement
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class ReducerTest {
     private val json = Json { ignoreUnknownKeys = true }
@@ -137,4 +139,66 @@ class ReducerTest {
         assertEquals("Bob", bob.name)
         // OtherPlayerView only has id, name, alive — no pos field (compile-time guarantee via data class)
     }
+
+    private fun welcomeWith(latest: Int, min: Int, url: String = "https://example/dl") =
+        WelcomeData(
+            playerId = "p1",
+            roomState = LobbyView(roomCode = "ROOM01", players = listOf("Alice"), isHost = true),
+            latestVersionCode = latest,
+            minVersionCode = min,
+            updateUrl = url
+        )
+
+    @Test
+    fun welcomeFlagsAvailableUpdate() {
+        val state = reduce(
+            ClientGameState(),
+            envelopeOf("welcome", welcomeWith(latest = 7, min = 1)),
+            currentVersionCode = 5
+        )
+        val info = assertNotNull(state.updateInfo)
+        assertEquals(7, info.latestVersionCode)
+        assertEquals(false, info.required)
+    }
+
+    @Test
+    fun welcomeFlagsRequiredUpdateBelowMinimum() {
+        val state = reduce(
+            ClientGameState(),
+            envelopeOf("welcome", welcomeWith(latest = 7, min = 6)),
+            currentVersionCode = 5
+        )
+        val info = assertNotNull(state.updateInfo)
+        assertTrue(info.required)
+    }
+
+    @Test
+    fun welcomeReportsNoUpdateWhenCurrent() {
+        val state = reduce(
+            ClientGameState(),
+            envelopeOf("welcome", welcomeWith(latest = 5, min = 1)),
+            currentVersionCode = 5
+        )
+        assertNull(state.updateInfo)
+    }
+
+    @Test
+    fun welcomeSkipsUpdateCheckWithoutAVersion() {
+        // Desktop and tests report 0 — never nag when we cannot compare.
+        val state = reduce(ClientGameState(), envelopeOf("welcome", welcomeWith(latest = 99, min = 99)))
+        assertNull(state.updateInfo)
+    }
+
+    @Test
+    fun welcomeFromOlderServerLeavesUpdateUnset() {
+        // A server predating these fields sends no update hints at all.
+        val bare = """{"playerId":"p1","roomState":{"roomCode":"R","players":[],"isHost":true}}"""
+        val state = reduce(
+            ClientGameState(),
+            Envelope(type = "welcome", ts = 0L, data = json.parseToJsonElement(bare)),
+            currentVersionCode = 5
+        )
+        assertNull(state.updateInfo)
+    }
+
 }

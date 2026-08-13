@@ -28,6 +28,12 @@ class GameViewModel : ViewModel() {
     private val _uiState = MutableStateFlow(ClientGameState())
     val uiState: StateFlow<ClientGameState> = _uiState
 
+    /**
+     * This build's Android versionCode, set once at startup. Left at 0 on
+     * platforms that have none, which makes the update check a no-op.
+     */
+    var currentVersionCode: Int = 0
+
     private var serverUrl: String = ""
     private var currentRoomCode: String = ""
     private var currentPlayerName: String = ""
@@ -39,7 +45,7 @@ class GameViewModel : ViewModel() {
         // envelope was reduced twice after a rejoin — duplicating event lines.
         viewModelScope.launch {
             wsClient.incoming.collect { envelope ->
-                _uiState.value = reduce(_uiState.value, envelope)
+                _uiState.value = reduce(_uiState.value, envelope, currentVersionCode)
             }
         }
         viewModelScope.launch {

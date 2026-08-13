@@ -1,5 +1,7 @@
 package com.blindmap.android
 
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -32,20 +34,35 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val serverUrl = getString(R.string.server_url)
+        val versionCode = currentVersionCode()
         setContent {
             MaterialTheme(colorScheme = AppColorScheme) {
                 Surface(color = MaterialTheme.colorScheme.background) {
-                    BlindMapApp(serverUrl)
+                    BlindMapApp(serverUrl, versionCode)
                 }
             }
         }
     }
+
+    /** 0 when the platform will not tell us, which disables the update check. */
+    private fun currentVersionCode(): Int = try {
+        val info = packageManager.getPackageInfo(packageName, 0)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            info.longVersionCode.toInt()
+        } else {
+            @Suppress("DEPRECATION")
+            info.versionCode
+        }
+    } catch (e: PackageManager.NameNotFoundException) {
+        0
+    }
 }
 
 @Composable
-private fun BlindMapApp(serverUrl: String) {
+private fun BlindMapApp(serverUrl: String, versionCode: Int) {
     val navController = rememberNavController()
     val vm: GameViewModel = viewModel()
+    vm.currentVersionCode = versionCode
 
     NavHost(navController = navController, startDestination = "lobby") {
         composable("lobby") {

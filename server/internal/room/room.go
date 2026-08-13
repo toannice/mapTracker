@@ -654,7 +654,13 @@ func (r *Room) sendWelcome(playerID game.PlayerID) {
 		Players:  names,
 		IsHost:   playerID == r.hostID,
 	}
-	welcome := protocol.WelcomeData{PlayerID: string(playerID), RoomState: lobby}
+	welcome := protocol.WelcomeData{
+		PlayerID:          string(playerID),
+		RoomState:         lobby,
+		LatestVersionCode: r.cfg.LatestVersionCode,
+		MinVersionCode:    r.cfg.MinVersionCode,
+		UpdateURL:         r.cfg.UpdateURL,
+	}
 	r.sendEnvelope(c, "welcome", welcome)
 
 	// Send existing chat history so the new client sees past messages.

@@ -104,6 +104,13 @@ fun LobbyScreen(vm: GameViewModel, serverUrl: String, onNavigateToGame: () -> Un
         Text("Blind Map Survival", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(24.dp))
 
+        // Only ever set once the server has answered, so this cannot appear
+        // before the player has successfully connected at least once.
+        state.updateInfo?.let {
+            UpdateBanner(it)
+            Spacer(Modifier.height(16.dp))
+        }
+
         OutlinedTextField(
             value = playerName,
             onValueChange = { playerName = it.take(20) },

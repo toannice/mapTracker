@@ -71,6 +71,14 @@ type Event struct {
 type WelcomeData struct {
 	PlayerID  string      `json:"playerId"`
 	RoomState interface{} `json:"roomState"`
+
+	// Auto-update hints. LatestVersionCode is the newest published Android
+	// build; MinVersionCode is the oldest one this server still speaks to —
+	// raise it when a protocol change breaks older clients. Both omitted when
+	// unconfigured, which clients treat as "no update to report".
+	LatestVersionCode int    `json:"latestVersionCode,omitempty"`
+	MinVersionCode    int    `json:"minVersionCode,omitempty"`
+	UpdateURL         string `json:"updateUrl,omitempty"`
 }
 
 type LobbyView struct {

@@ -13,6 +13,13 @@ type Config struct {
 	TurnSeconds    int
 	MapSize        int
 	AllowedOrigins []string
+
+	// Client auto-update hints, echoed in every welcome message. Zero / empty
+	// means "no opinion" and clients show nothing, so an unconfigured server
+	// behaves exactly as it did before.
+	LatestVersionCode int
+	MinVersionCode    int
+	UpdateURL         string
 }
 
 func Load() Config {
@@ -23,6 +30,10 @@ func Load() Config {
 		TurnSeconds:    getEnvInt("TURN_SECONDS", 30),
 		MapSize:        getEnvInt("MAP_SIZE", 20),
 		AllowedOrigins: strings.Split(getEnv("ALLOWED_ORIGINS", "*"), ","),
+
+		LatestVersionCode: getEnvInt("LATEST_VERSION_CODE", 0),
+		MinVersionCode:    getEnvInt("MIN_VERSION_CODE", 0),
+		UpdateURL:         getEnv("UPDATE_URL", ""),
 	}
 }
 

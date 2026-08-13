@@ -38,6 +38,17 @@ data class GameLogEntry(
     val actor: String? = null
 )
 
+/**
+ * What the server told us about client versions in its welcome message.
+ * [required] means this build is older than the server's minimum and can no
+ * longer play — the UI blocks instead of merely nudging.
+ */
+data class UpdateInfo(
+    val latestVersionCode: Int,
+    val downloadUrl: String,
+    val required: Boolean
+)
+
 data class ChatMessage(
     val senderName: String,
     val ts: Long,
@@ -68,5 +79,8 @@ data class ClientGameState(
     // Player's own map-reconstruction notes (wall/reward/trap/bullet/portal marks
     // on the redraw grid). Client-only, keyed by cell; reset each new match so
     // stale marks from a previous map never carry over.
-    val mapMarks: Map<Position, MapMark> = emptyMap()
+    val mapMarks: Map<Position, MapMark> = emptyMap(),
+    // Set from the welcome message when a newer Android build exists. Null
+    // when up to date, when the server is unconfigured, or on desktop.
+    val updateInfo: UpdateInfo? = null
 )
