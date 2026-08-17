@@ -2,6 +2,7 @@ package com.blindmap.android.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -33,6 +34,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.Stable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -42,13 +44,32 @@ import com.blindmap.viewmodel.GameViewModel
 import androidx.compose.foundation.layout.imePadding
 import kotlinx.coroutines.delay
 
+/**
+ * What the player typed and dialed in on the lobby form. Held above the
+ * NavHost so a finished match that lands back on the lobby comes back with
+ * the same name, room code and match settings — re-entering "lobby" builds a
+ * fresh LobbyScreen, so anything remembered inside it would be lost.
+ */
+@Stable
+class LobbyFormState {
+    var playerName by mutableStateOf("")
+    var roomCode by mutableStateOf("")
+    var mapSize by mutableIntStateOf(10)
+    var turnSeconds by mutableIntStateOf(30)
+}
+
 @Composable
-fun LobbyScreen(vm: GameViewModel, serverUrl: String, onNavigateToGame: () -> Unit) {
+fun LobbyScreen(
+    vm: GameViewModel,
+    serverUrl: String,
+    form: LobbyFormState,
+    onNavigateToGame: () -> Unit
+) {
     val state by vm.uiState.collectAsState()
-    var playerName by remember { mutableStateOf("") }
-    var roomCode by remember { mutableStateOf("") }
-    var mapSize by remember { mutableIntStateOf(10) }
-    var turnSeconds by remember { mutableIntStateOf(30) }
+    var playerName by form::playerName
+    var roomCode by form::roomCode
+    var mapSize by form::mapSize
+    var turnSeconds by form::turnSeconds
     // "create" | "join" — set khi user bấm nút lúc đang ở trong phòng khác,
     // để hỏi xác nhận trước khi rời phòng hiện tại.
     var confirmAction by remember { mutableStateOf<String?>(null) }
@@ -165,7 +186,7 @@ fun LobbyScreen(vm: GameViewModel, serverUrl: String, onNavigateToGame: () -> Un
                     steps = 15,
                     modifier = Modifier.fillMaxWidth()
                 )
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(12.dp))
                 Text("Thời gian mỗi lượt: ${turnSeconds} giây", style = MaterialTheme.typography.bodySmall)
                 Slider(
                     value = turnSeconds.toFloat(),
@@ -174,29 +195,21 @@ fun LobbyScreen(vm: GameViewModel, serverUrl: String, onNavigateToGame: () -> Un
                     steps = 109,
                     modifier = Modifier.fillMaxWidth()
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(16.dp))
                 Text("Bot (người máy)", style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(4.dp))
+                // Three buttons is all one phone-width row fits: squeezing a
+                // fourth in made every label wrap to one letter per line.
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(
-                        onClick = { vm.sendAddBot("easy") },
-                        modifier = Modifier.weight(1f)
-                    ) { Text("+Dễ") }
-                    OutlinedButton(
-                        onClick = { vm.sendAddBot("medium") },
-                        modifier = Modifier.weight(1f)
-                    ) { Text("+Vừa") }
-                    OutlinedButton(
-                        onClick = { vm.sendAddBot("hard") },
-                        modifier = Modifier.weight(1f)
-                    ) { Text("+Khó") }
-                    if (players.any { it.startsWith("Bot") }) {
-                        OutlinedButton(
-                            onClick = { vm.sendRemoveBot() },
-                            modifier = Modifier.weight(0.6f)
-                        ) { Text("−Bot") }
-                    }
+                    BotButton("+ Dễ", Modifier.weight(1f)) { vm.sendAddBot("easy") }
+                    BotButton("+ Vừa", Modifier.weight(1f)) { vm.sendAddBot("medium") }
+                    BotButton("+ Khó", Modifier.weight(1f)) { vm.sendAddBot("hard") }
                 }
-                Spacer(Modifier.height(12.dp))
+                if (players.any { it.startsWith("Bot") }) {
+                    Spacer(Modifier.height(8.dp))
+                    BotButton("− Bỏ bot", Modifier.fillMaxWidth()) { vm.sendRemoveBot() }
+                }
+                Spacer(Modifier.height(16.dp))
                 Button(
                     onClick = { vm.sendStartGame(mapSize, turnSeconds) },
                     modifier = Modifier.fillMaxWidth()
@@ -218,6 +231,21 @@ fun LobbyScreen(vm: GameViewModel, serverUrl: String, onNavigateToGame: () -> Un
             Spacer(Modifier.height(8.dp))
             Text(err, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
+    }
+}
+
+/**
+ * Narrow-column button: the label stays on one line even when the column is
+ * barely wider than the text, instead of wrapping down the screen.
+ */
+@Composable
+private fun BotButton(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier = modifier,
+        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)
+    ) {
+        Text(label, maxLines = 1, softWrap = false, style = MaterialTheme.typography.labelLarge)
     }
 }
 
