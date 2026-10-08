@@ -58,6 +58,8 @@ data class ChatMessage(
 data class ClientGameState(
     val roomId: String = "",
     val playerId: String = "",
+    // From welcome; presented together with playerId to resume this player on reconnect.
+    val reconnectToken: String = "",
     val phase: GamePhase = GamePhase.Lobby,
     val lobby: LobbyView? = null,
     val game: PlayerView? = null,

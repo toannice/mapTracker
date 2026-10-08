@@ -107,20 +107,23 @@ func wsHandler(cfg *config.Config, h *hub.Hub) http.HandlerFunc {
 
 		playerID := game.PlayerID(newPlayerID())
 		c := conn.NewConn(ws, playerName, playerID)
-		room.RegisterConn(playerID, c)
-		defer room.RemoveConn(playerID)
+		defer room.RemoveConn(c)
 
 		connCtx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
 		joinData := protocol.JoinData{
-			RoomCode:   roomCode,
-			PlayerName: playerName,
-			PlayerID:   r.URL.Query().Get("playerId"),
+			RoomCode:       roomCode,
+			PlayerName:     playerName,
+			PlayerID:       r.URL.Query().Get("playerId"),
+			ReconnectToken: r.URL.Query().Get("token"),
 		}
 		raw, _ := json.Marshal(joinData)
+		// The room registers the socket itself if it accepts the join; this
+		// goroutine must never touch room state directly.
 		room.InCh() <- conn.IncomingMsg{
 			PlayerID: playerID,
+			Conn:     c,
 			Envelope: protocol.Envelope{Type: "join", Ts: time.Now().UnixMilli(), Data: raw},
 		}
 

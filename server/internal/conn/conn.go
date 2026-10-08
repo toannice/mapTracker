@@ -14,6 +14,10 @@ import (
 
 type IncomingMsg struct {
 	PlayerID game.PlayerID
+	// Conn is the socket the message arrived on; nil for messages the server
+	// generates itself (bot timers). The room resolves a socket's player from
+	// it, so PlayerID is only trusted when Conn is nil.
+	Conn     *Conn
 	Envelope protocol.Envelope
 }
 
@@ -75,7 +79,7 @@ func (c *Conn) ReadPump(ctx context.Context, roomCh chan<- IncomingMsg) {
 		}
 
 		select {
-		case roomCh <- IncomingMsg{PlayerID: c.playerID, Envelope: env}:
+		case roomCh <- IncomingMsg{PlayerID: c.playerID, Conn: c, Envelope: env}:
 		case <-ctx.Done():
 			return
 		}

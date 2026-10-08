@@ -11,6 +11,7 @@ class ReconnectManager(private val wsClient: WebSocketClient) {
 
     suspend fun reconnect(
         playerId: String,
+        reconnectToken: String,
         serverUrl: String,
         roomCode: String,
         playerName: String
@@ -20,7 +21,7 @@ class ReconnectManager(private val wsClient: WebSocketClient) {
             val delayMs = min(2.0.pow(attempt).toLong() * 1000L, 30_000L)
             delay(delayMs)
             try {
-                wsClient.connect(serverUrl, roomCode, playerName, playerId)
+                wsClient.connect(serverUrl, roomCode, playerName, playerId, reconnectToken)
                 connState.value = ConnState.Connected
                 return
             } catch (e: Exception) {

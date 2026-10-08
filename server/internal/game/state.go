@@ -52,6 +52,10 @@ type Player struct {
 	VisitedCells map[Position]bool `json:"-"`
 	ConnectedAt  time.Time         `json:"-"`
 	LastSeen     time.Time         `json:"-"`
+
+	// ReconnectToken proves a client owns this player when it reconnects.
+	// Empty for bots, which no client may ever resume.
+	ReconnectToken string `json:"-"`
 }
 
 // GameEvent is a game-layer event produced by action resolvers.

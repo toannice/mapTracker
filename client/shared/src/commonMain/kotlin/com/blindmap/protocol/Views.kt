@@ -72,6 +72,9 @@ data class LobbyView(
 data class WelcomeData(
     @SerialName("playerId") val playerId: String,
     @SerialName("roomState") val roomState: LobbyView,
+    // Secret that lets this client resume its player after a dropped
+    // connection; the server refuses the player id on its own.
+    @SerialName("reconnectToken") val reconnectToken: String = "",
     // Auto-update hints. Absent on servers that predate this field, hence the
     // defaults: 0 means "server has no opinion" and the UI stays quiet.
     @SerialName("latestVersionCode") val latestVersionCode: Int = 0,

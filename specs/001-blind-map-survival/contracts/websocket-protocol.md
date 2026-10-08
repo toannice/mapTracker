@@ -42,7 +42,13 @@ Sent immediately after WebSocket upgrade. Identifies the player to the room.
 }
 ```
 
-For **reconnect** (resuming a session), set `playerId` to the original player ID returned in `welcome`.
+For **reconnect** (resuming a session), set `playerId` to the original player ID returned in `welcome`
+**and** `reconnectToken` to the token from that same `welcome`. Player IDs are public (every
+`PlayerView` lists them), so the server ignores a `playerId` that does not come with its owner's
+token and treats the request as a fresh join (`GAME_IN_PROGRESS` once a match is running).
+
+In practice clients pass these as query parameters on the upgrade URL —
+`/ws?room=ABC123&name=Alice&playerId=…&token=…` — and the server builds the `join` from them.
 
 ---
 
@@ -105,13 +111,15 @@ If no `pong` is received within 10 seconds, client initiates reconnect.
 ## Server → Client Messages
 
 ### `welcome`
-Sent after successful join/rejoin.
+Sent after successful join/rejoin. `reconnectToken` is a secret sent only to its owner; keep it for
+the session and present it on reconnect.
 ```json
 {
   "type": "welcome",
   "ts": 1715760000000,
   "data": {
     "playerId": "player_abc123",
+    "reconnectToken": "9f2c…",
     "roomState": {
       "roomCode": "ABC123",
       "players": ["Alice", "Bob"],
@@ -311,5 +319,6 @@ Client should begin reconnect after `reconnectAfterMs` milliseconds.
 1. Server MUST close connection if client sends > 10 messages/second.
 2. Server MUST validate `Origin` header on upgrade request (whitelist: `localhost` + production domain).
 3. Server MUST validate all incoming action fields; unknown fields are silently ignored.
-4. Server MUST NOT trust `playerId` in `data` for any purpose other than rejoin lookup.
+4. Server MUST NOT trust `playerId` in `data` for any purpose other than rejoin lookup, and MUST
+   only resume a player when the matching `reconnectToken` is presented with it.
 5. Server MUST enforce WSS only in production (Render provides TLS termination).

@@ -201,4 +201,16 @@ class ReducerTest {
         assertNull(state.updateInfo)
     }
 
+    @Test
+    fun welcomeStoresReconnectToken() {
+        // The token is what lets this client resume its player after a drop;
+        // the player id alone is public and the server refuses it.
+        val withToken = """{"playerId":"p1","reconnectToken":"s3cret","roomState":{"roomCode":"R","players":[],"isHost":true}}"""
+        val state = reduce(
+            ClientGameState(),
+            Envelope(type = "welcome", ts = 0L, data = json.parseToJsonElement(withToken))
+        )
+        assertEquals("s3cret", state.reconnectToken)
+    }
+
 }

@@ -17,6 +17,8 @@ type JoinData struct {
 	PlayerName    string `json:"playerName"`
 	ClientVersion string `json:"clientVersion"`
 	PlayerID      string `json:"playerId,omitempty"`
+	// ReconnectToken must accompany PlayerID to resume a session; see WelcomeData.
+	ReconnectToken string `json:"reconnectToken,omitempty"`
 }
 
 type ActionKind string
@@ -71,6 +73,11 @@ type Event struct {
 type WelcomeData struct {
 	PlayerID  string      `json:"playerId"`
 	RoomState interface{} `json:"roomState"`
+
+	// ReconnectToken is the secret that lets this client resume its session
+	// after a dropped connection. Sent only to its owner — player ids are
+	// public (every view lists them), so an id alone must never be enough.
+	ReconnectToken string `json:"reconnectToken,omitempty"`
 
 	// Auto-update hints. LatestVersionCode is the newest published Android
 	// build; MinVersionCode is the oldest one this server still speaks to —

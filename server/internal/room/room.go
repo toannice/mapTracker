@@ -3,6 +3,8 @@ package room
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"log/slog"
 	mrand "math/rand/v2"
@@ -20,6 +22,7 @@ import (
 type Room struct {
 	state       *game.GameState
 	conns       map[game.PlayerID]*conn.Conn
+	owners      map[*conn.Conn]game.PlayerID // the player each joined socket speaks for
 	hostID      game.PlayerID
 	inCh        chan conn.IncomingMsg
 	cfg         *config.Config
@@ -43,6 +46,7 @@ func NewRoom(id game.RoomID, cfg *config.Config, onDelete func(game.RoomID)) *Ro
 			Players:     make(map[game.PlayerID]*game.Player),
 		},
 		conns:    make(map[game.PlayerID]*conn.Conn),
+		owners:   make(map[*conn.Conn]game.PlayerID),
 		inCh:     make(chan conn.IncomingMsg, 128),
 		cfg:      cfg,
 		onDelete: onDelete,
@@ -71,6 +75,23 @@ func (r *Room) Run(ctx context.Context) {
 }
 
 func (r *Room) handleMessage(ctx context.Context, msg conn.IncomingMsg) {
+	// A socket speaks for whichever player it joined or reconnected as — not
+	// the provisional id it was opened with — and a socket that never joined
+	// speaks for nobody. Server-generated messages carry no socket.
+	if msg.Conn != nil {
+		id, joined := r.owners[msg.Conn]
+		if msg.Envelope.Type == "join" {
+			if joined {
+				return
+			}
+		} else {
+			if !joined {
+				return
+			}
+			msg.PlayerID = id
+		}
+	}
+
 	switch msg.Envelope.Type {
 	case "join":
 		r.handleJoin(ctx, msg)
@@ -81,6 +102,9 @@ func (r *Room) handleMessage(ctx context.Context, msg conn.IncomingMsg) {
 	case "ping":
 		r.handlePing(msg)
 	case "leave":
+		if msg.Conn != nil {
+			delete(r.owners, msg.Conn)
+		}
 		r.disconnect(msg.PlayerID)
 	case "bot_act":
 		r.handleBotAct(ctx, msg)
@@ -93,41 +117,40 @@ func (r *Room) handleJoin(ctx context.Context, msg conn.IncomingMsg) {
 		return
 	}
 
-	// Reconnect: client presents its old playerID
+	// Reconnect: the client resumes its old player by presenting that
+	// player's id together with the secret token from its welcome.
 	if data.PlayerID != "" {
-		existingID := game.PlayerID(data.PlayerID)
-		if p, ok := r.state.Players[existingID]; ok {
-			if c, ok2 := r.conns[msg.PlayerID]; ok2 {
-				r.conns[existingID] = c
-				delete(r.conns, msg.PlayerID)
-			}
+		if p, ok := r.state.Players[game.PlayerID(data.PlayerID)]; ok && validReconnect(p, data.ReconnectToken) {
+			r.attach(p.ID, msg.Conn)
 			p.LastSeen = time.Now()
-			r.sendWelcome(existingID)
+			r.sendWelcome(p.ID)
 			slog.Info("player reconnected", "roomId", r.state.RoomID, "playerName", p.Name)
 			return
 		}
 	}
 
 	if r.state.Phase != game.PhaseLobby {
-		r.sendError(msg.PlayerID, "GAME_IN_PROGRESS", "game already started")
+		r.rejectJoin(msg, "GAME_IN_PROGRESS", "game already started")
 		return
 	}
 	if len(r.state.Players) >= 8 {
-		r.sendError(msg.PlayerID, "ROOM_FULL", "room is full")
+		r.rejectJoin(msg, "ROOM_FULL", "room is full")
 		return
 	}
 
 	p := &game.Player{
-		ID:           msg.PlayerID,
-		Name:         data.PlayerName,
-		Alive:        true,
-		Inventory:    []game.Item{},
-		MaxSubmit:    3,
-		VisitedCells: make(map[game.Position]bool),
-		ConnectedAt:  time.Now(),
-		LastSeen:     time.Now(),
+		ID:             msg.PlayerID,
+		Name:           data.PlayerName,
+		Alive:          true,
+		Inventory:      []game.Item{},
+		MaxSubmit:      3,
+		VisitedCells:   make(map[game.Position]bool),
+		ConnectedAt:    time.Now(),
+		LastSeen:       time.Now(),
+		ReconnectToken: newReconnectToken(),
 	}
 	r.state.Players[msg.PlayerID] = p
+	r.attach(msg.PlayerID, msg.Conn)
 	r.joinOrder = append(r.joinOrder, msg.PlayerID)
 	if len(r.state.Players) == 1 {
 		r.hostID = msg.PlayerID
@@ -339,15 +362,50 @@ func (r *Room) disconnect(playerID game.PlayerID) {
 	r.deleteTimer = time.AfterFunc(60*time.Second, func() { r.onDelete(r.state.RoomID) })
 }
 
-func (r *Room) RegisterConn(playerID game.PlayerID, c *conn.Conn) {
-	r.conns[playerID] = c
-}
-
-func (r *Room) RemoveConn(playerID game.PlayerID) {
+// RemoveConn tells the room that socket c has gone away. The room works out
+// which player, if any, that socket still speaks for.
+func (r *Room) RemoveConn(c *conn.Conn) {
 	select {
-	case r.inCh <- conn.IncomingMsg{PlayerID: playerID, Envelope: protocol.Envelope{Type: "leave"}}:
+	case r.inCh <- conn.IncomingMsg{Conn: c, Envelope: protocol.Envelope{Type: "leave"}}:
 	default:
 	}
+}
+
+// attach makes c the live socket for player id. A reconnecting client usually
+// beats the server to noticing its old socket is dead, so that socket is
+// closed and disowned here — its eventual leave then can't disconnect the
+// player from their new one.
+func (r *Room) attach(id game.PlayerID, c *conn.Conn) {
+	if c == nil {
+		return // server-generated join (tests); no socket to track
+	}
+	if old, ok := r.conns[id]; ok && old != c {
+		delete(r.owners, old)
+		old.Close()
+	}
+	r.conns[id] = c
+	r.owners[c] = id
+}
+
+// rejectJoin answers a refused join on the socket itself: the socket never
+// becomes part of the room, so sendError, which goes by player, can't reach it.
+func (r *Room) rejectJoin(msg conn.IncomingMsg, code, text string) {
+	if msg.Conn != nil {
+		r.sendEnvelope(msg.Conn, "error", protocol.ErrorData{Code: code, Message: text})
+	}
+}
+
+// validReconnect reports whether token proves the caller owns player p. Bots
+// have no token, so no client can ever take one over.
+func validReconnect(p *game.Player, token string) bool {
+	return p.ReconnectToken != "" &&
+		subtle.ConstantTimeCompare([]byte(p.ReconnectToken), []byte(token)) == 1
+}
+
+func newReconnectToken() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 func (r *Room) startGame(debugMap bool, controlMap bool, controlScenario int) {
@@ -657,6 +715,7 @@ func (r *Room) sendWelcome(playerID game.PlayerID) {
 	latestCode, minCode, updateURL := r.cfg.UpdateHints()
 	welcome := protocol.WelcomeData{
 		PlayerID:          string(playerID),
+		ReconnectToken:    r.state.Players[playerID].ReconnectToken,
 		RoomState:         lobby,
 		LatestVersionCode: latestCode,
 		MinVersionCode:    minCode,

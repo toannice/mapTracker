@@ -121,6 +121,8 @@ Event kinds inside `turn_result.events`: `player_moved`, `trap_triggered`, `rewa
 
 **Wire security rule**: `PlayerView` sent to client X **never** includes position, health, or inventory of other players. Server never trusts client-sent state. `player_moved` carries no `pos`; `mapStats` exposes aggregate cell counts only.
 
+**Reconnect rule**: player ids are public (every view lists them), so resuming a player needs `playerId` **plus** the secret `reconnectToken` from that player's `welcome` (`/ws?...&playerId=…&token=…`). Inside the room a socket's identity comes from the room's own `owners` map, never from the id the socket was opened with.
+
 ## Environment Variables (Backend)
 
 | Var | Default | Purpose |

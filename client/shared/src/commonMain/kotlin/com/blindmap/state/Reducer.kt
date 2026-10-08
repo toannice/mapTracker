@@ -45,6 +45,7 @@ fun reduce(
             val data = json.decodeFromJsonElement<WelcomeData>(envelope.data)
             state.copy(
                 playerId = data.playerId,
+                reconnectToken = data.reconnectToken,
                 lobby = data.roomState,
                 phase = GamePhase.Lobby,
                 connState = ConnState.Connected,

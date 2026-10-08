@@ -66,8 +66,9 @@ class GameViewModel : ViewModel() {
             wsClient.onClosed.collect {
                 val playerId = _uiState.value.playerId
                 if (playerId.isNotEmpty()) {
+                    val token = _uiState.value.reconnectToken
                     _uiState.value = _uiState.value.copy(connState = ConnState.Reconnecting)
-                    reconnectManager.reconnect(playerId, serverUrl, currentRoomCode, currentPlayerName)
+                    reconnectManager.reconnect(playerId, token, serverUrl, currentRoomCode, currentPlayerName)
                     _uiState.value = _uiState.value.copy(connState = reconnectManager.connState.value)
                 }
             }

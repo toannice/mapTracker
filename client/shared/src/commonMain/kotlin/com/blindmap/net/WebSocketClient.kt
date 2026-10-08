@@ -41,9 +41,10 @@ class WebSocketClient {
         serverUrl: String,
         roomCode: String,
         playerName: String,
-        playerId: String? = null
+        playerId: String? = null,
+        reconnectToken: String? = null
     ) {
-        val url = buildUrl(serverUrl, roomCode, playerName, playerId)
+        val url = socketUrl(serverUrl, roomCode, playerName, playerId, reconnectToken)
         val s = client.webSocketSession(url)
         session = s
         lastPongTime = System.currentTimeMillis()
@@ -109,14 +110,20 @@ class WebSocketClient {
         session?.close()
         session = null
     }
+}
 
-    private fun buildUrl(
-        serverUrl: String,
-        roomCode: String,
-        playerName: String,
-        playerId: String?
-    ): String {
-        val base = "$serverUrl?room=$roomCode&name=$playerName"
-        return if (playerId != null) "$base&playerId=$playerId" else base
-    }
+/**
+ * The upgrade URL for joining [roomCode]. A reconnect adds the player id and
+ * the secret token from its welcome — the server refuses an id on its own,
+ * since every player can see every other player's id.
+ */
+internal fun socketUrl(
+    serverUrl: String,
+    roomCode: String,
+    playerName: String,
+    playerId: String? = null,
+    reconnectToken: String? = null
+): String {
+    val base = "$serverUrl?room=$roomCode&name=$playerName"
+    return if (playerId != null) "$base&playerId=$playerId&token=${reconnectToken.orEmpty()}" else base
 }
